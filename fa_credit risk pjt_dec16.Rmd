@@ -1,0 +1,2351 @@
+---
+title: "fa_final"
+author: "Krishna Ravali J"
+date: "06/12/2020"
+output:
+  word_document: default
+  html_document: default
+---
+
+importing necessary libraries
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+################################################
+#Loading essential libraries
+```{r}
+library(caret)
+library(ggplot2)
+library(xlsx)
+library(readxl)
+library(dplyr)
+```
+###################################################
+#Reading the data from local
+```{r read data, echo=FALSE, warning= FALSE}
+
+fin<- read_excel('C:/Users/krish/Downloads/finaldata_2.xlsx')
+```
+
+#########################################
+#Describing dataset
+
+```{r desc data, echo=FALSE}
+cat("type of dataset:\n",typeof(fin))
+cat("\nnumber of rows in dataset:\n",nrow(fin))
+cat("\ndimensions of dataset:\n",dim(fin))
+cat("\n top rows of the data: \n")
+head(fin)
+```
+##################################################################################
+#Summary statistics
+```{r summary stats}
+print("summary statistics of the dataset")
+summary(fin)
+#datatype of individual col along with sample data
+#str(fin)
+library(dplyr)
+print("column wise datatypes :")
+sapply(fin,class)
+```
+#################################################
+#Checking missing data for full dataset fin
+```{r  , echo=FALSE}
+#setting counter to 0; which counts number of columns that has NAs
+c=0
+cat("Checking for missing data:\n")
+for (i in colnames(as.data.frame(fin))){
+if(sum(is.na(fin[[i]]))>0 ){print(i) 
+  c=c+1} }
+if (c>0){print("Nulls in the dataset")} else {print("No nulls in the dataset")}
+cat("No.of columns that has nulls:",c)
+```
+
+#################################################
+#Sampling data
+
+```{r sql}
+# fin_new<- fin %>% group_by(compname) %>% filter( mean(sales, na.rm = TRUE) >10 )
+# dim(fin_new)
+# dim(fin)
+# library(plyr)
+# nrow(table(fin$compname))
+# nrow(table(fin_new$compname))
+# 
+# fin %>%
+#   group_by(compname) %>%
+#   summarize(mean_sales = mean(sales,na.rm = TRUE),n()) %>%
+#   filter(mean_sales >10)
+
+# library(dplyr)
+# library(plyr)
+# 
+# fin %>%
+#   group_by(fin$compname) %>%
+#   summarize(mean_sales = mean(fin$sales, na.rm = TRUE)) 
+
+#obtaining company wise average sales for the full data set
+library(sqldf)
+
+fin_new<- sqldf("select compname,cast(avg(sales) as integer) as mean_sales   from fin  group by compname ")
+fin_new
+dim(fin_new)
+summary(fin_new$mean_sales)
+#     Min. 1st Qu.  Median  Mean 3rd Qu.    Max. 
+#      0     313    1255   12132    4928 2873415
+#here mean>median so sales data for companies is right skewed which implies there #are lesser number of companies that have higher values of sales 
+boxplot(fin_new$mean_sales,log="y",ylim=c(0.1,10000000),col='blue',main="Box plot for average sales distribution of all the companies")
+#choosing companies that lie on above half side of the median (i.e., companies with huge average sales or high volume of avg sales)
+fin_new1<- sqldf("select compname,cast(avg(sales) as integer) as mean_sales   from fin  group by compname having mean_sales>1255 ")
+dim(fin_new1) # 981 companies were fetched our of 1963 in total
+
+#obtaining list of bse groups that are present in full dataset
+fin_new2<- sqldf("select distinct compname,bsegroup   from fin  group by compname")
+fin_new2
+#frequency distribution of bse groups among all companies
+table(fin_new2$bsegroup)
+
+#obtaining similar stats for sampled data
+q<-inner_join(fin_new2,fin_new1,by='compname')
+table(q$bsegroup)
+fin_sample<-inner_join(fin,fin_new1,by='compname')
+dim(fin_sample)  #total of 19494 rows are fetched out of 37170 
+colnames(fin_sample) #mean_sales column is added to the sampled data
+ncol(fin_sample)
+```
+
+#################################################
+
+
+#Full view of the sampled  data
+```{r}
+
+View(fin_sample)
+head(fin_sample)
+```
+#################################################
+
+#Checking row count when NAs omitted
+```{r}
+fin_sample1<- fin_sample[fin_sample$bsegroup %in% c("A","B","Z","ZP"),]
+nrow(fin_sample)
+nrow(fin_sample1)
+ncol(fin_sample1)
+#colnames(fin_sample1)
+fin_sample2<-na.omit(fin_sample1,cols=c("liquidity(X1)"  ,          "profitability(X2)","productivity(X3)"  ,       "leverage(X4)"   ,         
+ "assetturnover(X5)"  ,      "operationalmargin(OM)"   ,
+              "growthassets(GA)"        ,
+                  "growthsales(GS)"      ,   
+             "growthemployees(GE)", "CROE","CPB") )
+nrow(fin_sample2)
+head(fin_sample2)
+ncol(fin_sample2)
+fin_samp3<-na.omit(fin_sample1)
+nrow(fin_samp3)
+#even with omit only on essential 11 variables or complete list, the final row count after na.omit remains same at 2353.
+```
+#################################################
+
+#Target column creation : bankruptcy
+```{r tgt col creation}
+#creating new col bankruptcy assigning 0 as its initial value(all companies are non bankrupt)
+fin_sample2['bankruptcy']<- 0
+table(fin_sample2['bankruptcy'])
+ncol(fin_sample2)
+```
+#################################################
+#Encoding target column Bankruptcy
+```{r mapping tgt col}
+#using debtequity ratio to map bankruptcy values
+#stats::quantile(as.integer(unlist(fin["debttoequity"])),decreasing=TRUE,na.rm=TRUE,prob=1-)
+#View(fin)
+typeof(fin_sample2["debttoequity"])
+#View(fin$debttoequity)
+top10_debt_eq<-head(sort(as.integer(fin_sample2$debttoequity),decreasing=T),0.10*nrow(fin_sample2))
+length(top10_debt_eq)
+typeof(top10_debt_eq)
+typeof(as.numeric(unlist(fin_sample2$debttoequity)))
+head(top10_debt_eq)
+library(tidyr)
+x<-replace_na(as.integer(fin_sample2$debttoequity) ,0)
+y<-top10_debt_eq
+length(x)
+length(y)
+typeof(x)
+head(x)
+typeof(y)
+head(y)
+#View(y)
+#View(x)
+
+length(top10_debt_eq)
+typeof(top10_debt_eq)
+typeof(as.numeric(unlist(fin_sample2$debttoequity)))
+
+#choosing tgt columns encoding from encoding bse group z/zp or with top 10
+View(unique(fin$compname))
+fin_sample2$bankruptcy<- ifelse(x  %in% y ,1,0) | ifelse(fin_sample2["bsegroup"] %in% c('Z','ZP'),1,0)
+
+table(fin_sample2['bankruptcy'])
+
+
+
+fin_sample2$bankruptcy <- as.numeric(ifelse(fin_sample2$bankruptcy,1,0))
+
+fin_sample2$bankruptcy <- as.factor(fin_sample2$bankruptcy)
+table(fin_sample2['bankruptcy'])  #0 non bankrupt 1 bankrupt
+```
+
+
+#################################################
+
+#Slice data for augmented altman data analysis (carton & hofer) 11 variables
+```{r slice data}
+#number of columns in sampled version of data
+ncol(fin_sample2)
+#storing 11 input variables index as cols
+cols <- c(25:30,32,34,36,39,41,62)
+
+fin_alt_11<-fin_sample2[,cols]
+colnames(fin_alt_11)
+
+#renaming column names, removing paranthesis
+colnames(fin_alt_11)<-c('liquidity_X1','profitability_X2','productivity_X3','leverage_X4','assetturnover_X5','operationalmargin_OM','growthassets_GA','growthsales_GS','growthemployees_GE','CROE','CPB','bankruptcy')
+colnames(fin_alt_11)
+#data type of all columns in sliced data for 11 variable analysis
+sapply(fin_alt_11,class)
+#top rows
+View(fin_alt_11)
+```
+
+#################################################
+
+#Checking nulls in data for augmented altman analysis(11 variables)
+```{r  , echo=FALSE}
+#setting counter to 0; which counts number of columns that has NAs
+c=0
+cat("Checking for missing data:\n")
+for (i in colnames(as.data.frame(fin_alt_11))){
+if(sum(is.na(fin_alt_11[[i]]))>0 ){print(i) 
+  c=c+1} }
+if (c>0){cat("\n Nulls present in the dataset \n")} else {print("\n No nulls in the dataset \n")}
+cat("\n No.of columns that has nulls out of 12 columns in the dataset: \n",c)
+
+
+```
+#################################################
+
+#Correlation matrix on data (in 11 variable altman data)
+```{r, echo=TRUE}
+library(corrplot)
+source("http://www.sthda.com/upload/rquery_cormat.r")
+#sapply(fin_alt_11,class)
+fin_alt_num<-fin_alt_11
+fin_alt_num$bankruptcy<-as.numeric(fin_alt_num$bankruptcy)
+rquery.cormat(fin_alt_num,type='lower')
+```
+
+#################################################
+
+#Splitting data in to train and test from 11 variables dataset:
+```{r data split, echo=FALSE}
+#setting seed for reproduceability
+set.seed(100)
+#splitting data in to 70:30 ratio
+flag = sample(2, nrow(fin_alt_11), replace = TRUE, prob=c(0.7, 0.3))
+#train set
+train_classif_alt_11 = fin_alt_11[flag==1,]
+cat("Number of rows in training set: \n",nrow(train_classif_alt_11))
+test_classif_alt_11 = fin_alt_11[flag == 2,]
+head(test_classif_alt_11)
+cat("\n Number of rows in test set: \n",nrow(test_classif_alt_11))
+print("distinct classes frequency in train dataset")
+table(train_classif_alt_11$bankruptcy)
+print("distinct classes frequency in test dataset")
+table(test_classif_alt_11$bankruptcy)
+```
+
+
+
+#################################################
+
+
+#Creating data for altman model(5 variable input)
+```{r}
+#using 11 input model variables for slicing 
+fin_alt_5<- fin_alt_11[c(1,2,3,4,5,12)]
+head(fin_alt_5)
+colnames(fin_alt_5)
+
+train_classif_alt_5<-train_classif_alt_11[c(1,2,3,4,5,12)]
+test_classif_alt_5<-test_classif_alt_11[c(1,2,3,4,5,12)]
+#altman model
+nrow(train_classif_alt_5)
+nrow(test_classif_alt_5)
+#carton hofer model
+nrow(train_classif_alt_11)
+nrow(test_classif_alt_11)
+
+
+```
+#################################################
+
+#Checking nulls in altman 5 variable dataset
+```{r  , echo=FALSE}
+#setting counter to 0; which counts number of columns that has NAs
+c=0
+cat("Checking for missing data:\n")
+for (i in colnames(as.data.frame(fin_alt_5))){
+if(sum(is.na(fin_alt_5[[i]]))>0 ){print(i) 
+  c=c+1} }
+if (c>0){cat("\n Nulls present in the dataset \n")} else {print("\n No nulls in the dataset \n")}
+cat("\n No.of columns that has nulls out of 6 columns in the dataset: \n",c)
+
+
+```
+
+###############################################################
+###############################################################
+# ALTMAN 5 VARIABLE MODELLING without CV
+
+BAGGING NCV (5)
+```{r}
+library(MASS)
+library(ipred)
+set.seed(100)
+typeof(fin_alt_5$bankruptcy)
+
+fin_bag_ncv_5 <- bagging(bankruptcy ~ ., data = train_classif_alt_5, 
+                         scale = TRUE,verbose=FALSE) 
+#head(fin_bag_ncv_5)
+
+#confusion matrix of train model
+#conf_mat_bag_ncv_5_train<-confusionMatrix(fin_bag_ncv_5)
+
+#predicting target variable based on the above model
+pred_bag_ncv_5 = predict(fin_bag_ncv_5, newdata=test_classif_alt_5)
+#head(pred_bag_ncv_5)
+
+#testing$bankruptcy
+#confusion matrix
+conf_mat_bag_ncv_5=as.matrix(confusionMatrix(data=pred_bag_ncv_5,(test_classif_alt_5$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of bagging with 5 variable altman model with out cross validation")
+conf_mat_bag_ncv_5
+
+#"Confusion matrix of bagging with 5 variable altman model with out cross validation"
+#    0   1
+#0 456  66
+#1  49 155
+```
+
+BOOSTING NCV (5)
+```{r}
+set.seed(100)
+library(gbm)
+mtry <- sqrt(ncol(fin_alt_5[1:5]))
+fin_boost_ncv_5 <- gbm(as.character(bankruptcy) ~ ., data =train_classif_alt_5,
+                   distribution="bernoulli",verbose = FALSE) 
+
+#head(fin_boost_ncv_5)
+
+#confusion matrix of train model
+#conf_mat_boost_ncv_5_train<-confusionMatrix(fin_boost_ncv_5)
+
+#predicting target variable based on the above model
+pred_boost_ncv_5 = predict(fin_boost_ncv_5, newdata=test_classif_alt_5,type="response")
+unique(pred_boost_ncv_5)
+predicted_labels_boost_ncv_5=as.factor(ifelse(pred_boost_ncv_5>0.5,1,0))
+levels(predicted_labels_boost_ncv_5)
+length(test_classif_alt_5$bankruptcy)
+length(predicted_labels_boost_ncv_5)
+#confusion matrix
+conf_mat_boost_ncv_5=as.matrix(confusionMatrix(data=predicted_labels_boost_ncv_5,(test_classif_alt_5$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of boosting with 5 variable altman model with out cross validation")
+conf_mat_boost_ncv_5
+#or table(predicted_labels_ncv_11,test_classif_alt_11$bankruptcy)
+
+#"Confusion matrix of boosting with 5 variable altman model with out cross validation"
+#    0   1
+#0 455  78
+#1  50 143
+```
+
+LOGISTIC REGRESSION NCV (5)
+```{r}
+library(stats)
+set.seed(100)
+fin_logit_ncv_5 <- glm(bankruptcy ~ ., data = train_classif_alt_5, family="binomial") 
+ 
+#head(fin_logit_ncv_5)
+
+#confusion matrix of train model
+#conf_mat_logit_ncv_5_train<-confusionMatrix(fin_logit_ncv_5)
+
+#predicting target variable based on the above model
+pred_logit_ncv_5 = predict(fin_logit_ncv_5, newdata=test_classif_alt_5,
+                            type='response')
+#head(pred_logit_ncv_5)
+predicted_labels_logit_ncv_5=as.factor(ifelse(pred_logit_ncv_5>0.5,1,0))
+
+#confusion matrix
+conf_mat_logit_ncv_5=as.matrix(confusionMatrix(data=predicted_labels_logit_ncv_5,(test_classif_alt_5$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of logistic regression with 5 variable altman model with out cross validation")
+conf_mat_logit_ncv_5
+#"Confusion matrix of logistic regression with 5 variable altman model with out cross validation"
+#    0   1
+#0 450 109
+#1  55 112
+```
+
+RANDOM FOREST NCV (5)
+```{r}
+set.seed(100)
+library(randomForest)
+#rf_grid <-  expand.grid(mtry = c(floor(sqrt(5) / 10),
+#                        floor(sqrt(5) / 5),
+#                        floor(sqrt(5))))
+fin_rforest_ncv_5 <- randomForest(bankruptcy ~ ., data = train_classif_alt_5, 
+                              importance = TRUE)
+
+#head(fin_rforest_ncv_5)
+
+#confusion matrix of train model
+#conf_mat_rforest_ncv_5_train<-confusionMatrix(fin_rforest_ncv_5)
+
+#predicting target variable based on the above model
+pred_rforest_ncv_5 = predict(fin_rforest_ncv_5, newdata=test_classif_alt_5)
+head(pred_rforest_ncv_5)
+
+#confusion matrix
+conf_mat_rforest_ncv_5=confusionMatrix(data=pred_rforest_ncv_5,(test_classif_alt_5$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of random forest with 5 variable altman model with out cross validation")
+conf_mat_rforest_ncv_5
+
+#Confusion Matrix and Statistics
+
+#          Reference
+#Prediction   0   1
+#         0 461  61
+#         1  44 160
+```
+
+ANN NCV (5)
+```{r}
+set.seed(100)
+library(nnet)
+fin_ann_ncv_5<- nnet(bankruptcy ~ ., data = train_classif_alt_5, size = 10)
+
+#incase of Error in gzfile(file, "wb") : cannot open the connection reloading R will solve issue
+
+#head(fin_ann_ncv_5)
+
+#confusion matrix of train model
+#conf_mat_ann_ncv_5_train<-confusionMatrix(fin_ann_ncv_5)
+
+#predicting target variable based on the above model
+pred_ann_ncv_5 = predict(fin_ann_ncv_5, newdata=test_classif_alt_5,type='raw')
+#head(pred_ann_ncv_5)
+predicted_labels_ann_ncv_5=as.factor(ifelse(pred_ann_ncv_5>0.5,1,0))
+
+#confusion matrix
+conf_mat_ann_ncv_5=confusionMatrix(data=predicted_labels_ann_ncv_5,(test_classif_alt_5$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of ANN with 5 variable altman model with out cross validation")
+conf_mat_ann_ncv_5
+
+
+#          Reference
+#Prediction   0   1
+#         0 460  97
+#         1  45 124
+```
+
+SVM LINEAR NCV (5)
+```{r}
+set.seed(100)
+library(e1071)
+fin_svm_l_ncv_5 <- svm( bankruptcy ~., data = train_classif_alt_5, kernal ="linear", 
+                    cost = 10, scale = TRUE)
+#head(fin_svm_l_ncv_5)
+
+#confusion matrix of train model
+#conf_mat_svm_l_ncv_5_train<-confusionMatrix(fin_svm_l_ncv_5)
+
+#predicting target variable based on the above model
+pred_svm_l_ncv_5 = predict(fin_svm_l_ncv_5, newdata=test_classif_alt_5)
+#head(pred_svm_l_ncv_5)
+
+#confusion matrix
+conf_mat_svm_l_ncv_5=confusionMatrix(data=pred_svm_l_ncv_5,(test_classif_alt_5$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of svm linear with 5 variable altman model with our cross validation")
+conf_mat_svm_l_ncv_5
+
+#Confusion Matrix and Statistics
+
+#          Reference
+#Prediction   0   1
+#         0 464 149
+#         1  41  72
+```
+
+SVM RADIAL NCV (5)
+```{r}
+library(e1071)
+set.seed(100)
+fin_svm_r_ncv_5 <- svm( bankruptcy ~., data = train_classif_alt_5, kernal = "radial",
+                    gamma = 1, cost = 10, scale=TRUE)
+#head(fin_svm_r_ncv_5)
+
+#confusion matrix of train model
+#conf_mat_svm_r_ncv_5_train<-confusionMatrix(fin_svm_r_ncv_5)
+
+#predicting target variable based on the above model
+pred_svm_r_ncv_5 = predict(fin_svm_r_ncv_5, newdata=test_classif_alt_5)
+#head(pred_svm_r_ncv_5)
+
+#confusion matrix
+conf_mat_svm_r_ncv_5=confusionMatrix(data=pred_svm_r_ncv_5,(test_classif_alt_5$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of svm radial with 5 variable altman model with out cross validation")
+conf_mat_svm_r_ncv_5
+
+#          Reference
+#Prediction   0   1
+#         0 425 110
+#         1  80 111
+```
+
+MDA NCV (5)
+```{r}
+set.seed(100)
+library(MASS)
+fin_mda_ncv_5 <- lda( bankruptcy ~., data = train_classif_alt_5, scale = TRUE)
+#head(fin_mda_ncv_5)
+colnames(fin_mda_ncv_5)
+#confusion matrix of train model
+#conf_mat_mda_ncv_5_train<-confusionMatrix(fin_mda_ncv_5,trai_cla)
+
+#predicting target variable based on the above model
+pred_mda_ncv_5 = predict(fin_mda_ncv_5,newdata=test_classif_alt_5,prior = fin_mda_ncv_5$prior)
+length(pred_mda_ncv_5)
+#head(pred_mda_ncv_5)
+#confusion matrix
+print("Confusion matrix of mda with 5 variable altman model with out cross validation")
+table(pred_mda_ncv_5$class,test_classif_alt_5$bankruptcy)
+#     0   1
+#  0 469 177
+#  1  36  44
+```
+
+#########################################################################
+#########################################################################
+# ALTMAN 11 VARIABLE MODELLING WITHOUT CV
+
+BAGGING NCV (11)
+```{r}
+set.seed(100)
+library(ipred)
+library(caret)
+unique(fin_alt_11$bankruptcy)
+
+fin_bag_ncv_11 <- bagging(bankruptcy ~ ., data = train_classif_alt_11, 
+                         scale = TRUE)  
+#head(fin_bag_ncv_11)
+
+#confusion matrix of train model
+#conf_mat_bag_ncv_11_train<-confusionMatrix(fin_bag_ncv_11)
+
+#predicting target variable based on the above model
+pred_bag_ncv_11 = predict(fin_bag_ncv_11, newdata=test_classif_alt_11)
+#head(pred_bag_ncv_11)
+
+#testing$bankruptcy
+#confusion matrix
+conf_mat_bag_ncv_11=as.matrix(confusionMatrix(data=pred_bag_ncv_11,(test_classif_alt_11$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of bagging with 11 variable altman model with out cross validation")
+conf_mat_bag_ncv_11
+
+#    0   1
+#0 461  68
+#1  44 153
+``` 
+
+BOOSTING NCV (11)
+```{r}
+set.seed(100)
+library(gbm)
+mtry <- sqrt(ncol(fin_alt_11[1:11]))
+fin_boost_ncv_11 <- gbm(as.character(bankruptcy) ~ ., data =train_classif_alt_11,
+                   distribution="bernoulli",verbose = FALSE) 
+
+#head(fin_boost_ncv_11)
+
+#confusion matrix of train model
+#conf_mat_boost_ncv_11_train<-confusionMatrix(fin_boost_ncv_11)
+
+#predicting target variable based on the above model
+pred_boost_ncv_11 = predict(fin_boost_ncv_11, newdata=test_classif_alt_11,type="response")
+unique(pred_boost_ncv_11)
+predicted_labels_boost_ncv_11=as.factor(ifelse(pred_boost_ncv_11>0.5,1,0))
+levels(predicted_labels_boost_ncv_11)
+length(test_classif_alt_11$bankruptcy)
+length(predicted_labels_boost_ncv_11)
+#confusion matrix
+conf_mat_boost_ncv_11=as.matrix(confusionMatrix(data=predicted_labels_boost_ncv_11,(test_classif_alt_11$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of boosting with 11 variable altman model with out cross validation")
+conf_mat_boost_ncv_11
+#or table(predicted_labels_ncv_11,test_classif_alt_11$bankruptcy)
+#   0   1
+#0 463  82
+#1  42 139
+```
+
+LOGISTIC REGRESSION NCV (11)
+```{r}
+library(stats)
+set.seed(100)
+fin_logit_ncv_11 <- glm(bankruptcy ~ ., data = train_classif_alt_11, family="binomial") 
+ 
+#head(fin_logit_ncv_11)
+
+#confusion matrix of train model
+#conf_mat_logit_ncv_11_train<-confusionMatrix(fin_logit_ncv_11)
+
+#predicting target variable based on the above model
+pred_logit_ncv_11 = predict(fin_logit_ncv_11, newdata=test_classif_alt_11,
+                            type='response')
+#head(pred_logit_ncv_11)
+predicted_labels_logit_ncv_11=as.factor(ifelse(pred_logit_ncv_11>0.5,1,0))
+
+#confusion matrix
+conf_mat_logit_ncv_11=as.matrix(confusionMatrix(data=predicted_labels_logit_ncv_11,(test_classif_alt_11$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of logistic regression with 11 variable altman model with out cross validation")
+conf_mat_logit_ncv_11
+
+#    0   1
+#0 446  98
+#1  59 123
+```
+
+RANDOM FOREST  NCV (11)
+```{r}
+set.seed(100)
+library(randomForest)
+
+fin_rforest_ncv_11 <- randomForest(bankruptcy ~ ., data = train_classif_alt_11, 
+                              importance = TRUE)
+
+#head(fin_rforest_ncv_11)
+
+#confusion matrix of train model
+#conf_mat_rforest_ncv_11_train<-confusionMatrix(fin_rforest_ncv_11)
+
+#predicting target variable based on the above model
+pred_rforest_ncv_11 = predict(fin_rforest_ncv_11, newdata=test_classif_alt_11)
+#head(pred_rforest_ncv_11)
+
+#confusion matrix
+conf_mat_rforest_ncv_11=confusionMatrix(data=pred_rforest_ncv_11,(test_classif_alt_11$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of random forest with 11 variable altman model with out cross validation")
+conf_mat_rforest_ncv_11
+
+#          Reference
+#Prediction   0   1
+#         0 469  67
+#         1  36 154
+```
+ANN NCV (11)
+```{r}
+set.seed(100)
+library(nnet)
+fin_ann_ncv_11<- nnet(bankruptcy ~ ., data = train_classif_alt_11, size = 10)
+
+#incase of Error in gzfile(file, "wb") : cannot open the connection reloading R will solve issue
+
+#head(fin_ann_ncv_11)
+
+#confusion matrix of train model
+#conf_mat_ann_ncv_11_train<-confusionMatrix(fin_ann_ncv_11)
+
+#predicting target variable based on the above model
+pred_ann_ncv_11 = predict(fin_ann_ncv_11, newdata=test_classif_alt_11,type='raw')
+#head(pred_ann_ncv_11)
+predicted_labels_ann_ncv_11=as.factor(ifelse(pred_ann_ncv_11>0.5,1,0))
+
+#confusion matrix
+conf_mat_ann_ncv_11=confusionMatrix(data=predicted_labels_ann_ncv_11,(test_classif_alt_11$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of ANN with 11 variable altman model with out cross validation")
+conf_mat_ann_ncv_11
+
+#          Reference
+#Prediction   0   1
+#         0 466  93
+#         1  39 128
+```
+
+SVM LINEAR NCV (11)
+```{r}
+set.seed(100)
+library(e1071)
+fin_svm_l_ncv_11 <- svm( bankruptcy ~., data = train_classif_alt_11, kernal ="linear", 
+                    cost = 10, scale = TRUE)
+#head(fin_svm_l_ncv_11)
+
+#confusion matrix of train model
+#conf_mat_svm_l_ncv_11_train<-confusionMatrix(fin_svm_l_ncv_11)
+
+#predicting target variable based on the above model
+pred_svm_l_ncv_11 = predict(fin_svm_l_ncv_11, newdata=test_classif_alt_11)
+#head(pred_svm_l_ncv_11)
+
+#confusion matrix
+conf_mat_svm_l_ncv_11=confusionMatrix(data=pred_svm_l_ncv_11,(test_classif_alt_11$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of svm linear with 11 variable altman model with our cross validation")
+conf_mat_svm_l_ncv_11
+
+#          Reference
+#Prediction   0   1
+#         0 445 119
+#         1  60 102
+```
+
+SVM RADIAL NCV (11)
+```{r}
+set.seed(100)
+fin_svm_r_ncv_11 <- svm( bankruptcy ~., data = train_classif_alt_11, kernal = "radial",
+                    gamma = 1, cost = 10, scale=TRUE)
+#head(fin_svm_r_ncv_11)
+
+#confusion matrix of train model
+#conf_mat_svm_r_ncv_11_train<-confusionMatrix(fin_svm_r_ncv_11)
+
+#predicting target variable based on the above model
+pred_svm_r_ncv_11 = predict(fin_svm_r_ncv_11, newdata=test_classif_alt_11)
+#head(pred_svm_r_ncv_11)
+
+#confusion matrix
+conf_mat_svm_r_ncv_11=confusionMatrix(data=pred_svm_r_ncv_11,(test_classif_alt_11$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of svm radial with 11 variable altman model with out cross validation")
+conf_mat_svm_r_ncv_11
+
+#          Reference
+#Prediction   0   1
+#         0 443 116
+#         1  62 105
+```
+
+MDA NCV  (11)
+```{r}
+set.seed(100)
+library(MASS)
+fin_mda_ncv_11 <- lda( bankruptcy ~., data = train_classif_alt_11, scale = TRUE)
+#head(fin_mda_ncv_11)
+
+#confusion matrix of train model
+#conf_mat_mda_ncv_11_train<-confusionMatrix(fin_mda_ncv_11)
+
+#predicting target variable based on the above model
+pred_mda_ncv_11 = predict(fin_mda_ncv_11,newdata=test_classif_alt_11,prior = fin_mda_ncv_11$prior)
+length(pred_mda_ncv_11)
+#head(pred_mda_ncv_11)
+#confusion matrix
+print("Confusion matrix of mda with 11 variable altman model")
+table(pred_mda_ncv_11$class,test_classif_alt_11$bankruptcy)
+
+#      0   1
+#  0 465 179
+#  1  40  42
+```
+
+
+#################################################
+
+#Train control for cross validation
+```{r}
+set.seed=100
+ctrl <- trainControl(method="repeatedcv",number=5, repeats=3,savePredictions = 'final',search="random")
+
+```
+
+
+
+#################### CROSS VALIDATING THE RESULTS##############
+###############################################################
+###############################################################
+# ALTMAN 5 VARIABLE CROSS VALIDATION MODELLING
+
+BAGGING CV (5)
+```{r}
+set.seed(100)
+typeof(fin_alt_5$bankruptcy)
+
+fin_bag_5 <- train(bankruptcy ~ ., data = fin_alt_5, method = "treebag", 
+          trControl = ctrl, preProcess = c("center","scale"),tuneLength = 5,verbose=FALSE) 
+#head(fin_bag_5)
+
+#predicting target variable based on the above model
+pred_bag_5 = predict(fin_bag_5, newdata=test_classif_alt_5)
+#head(pred_bag_5)
+
+#confusion matrx of train model
+conf_mat_bag_5_train<-confusionMatrix(fin_bag_5)
+
+conf_mat_bag_5_train
+
+#confusion matrix
+conf_mat_bag_5=as.matrix(confusionMatrix(data=pred_bag_5,(test_classif_alt_5$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of bagging with 5 variable altman model")
+conf_mat_bag_5
+
+#    0   1
+#0 504   1
+#1   1 220
+```
+
+BOOSTING CV (5)
+```{r ,echo=FALSE}
+set.seed(100)
+mtry <- sqrt(ncol(fin_alt_5[1:5]))
+fin_boost_5 <- train(bankruptcy ~ ., data = fin_alt_5, method = "gbm", 
+          trControl = ctrl, preProcess = c("center","scale"),distribution="bernoulli",verbose=FALSE) 
+
+#head(fin_boost_5)
+#confusion matrx of train model
+conf_mat_boost_5_train<-confusionMatrix(fin_boost_5)
+
+conf_mat_boost_5_train
+
+#predicting target variable based on the above model
+pred_boost_5 = predict(fin_boost_5, newdata=test_classif_alt_5)
+#head(pred_boost_5)
+
+#confusion matrix
+conf_mat_boost_5=as.matrix(confusionMatrix(data=pred_boost_5,(test_classif_alt_5$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of boosting with 5 variable altman model")
+conf_mat_boost_5
+
+#    0   1
+#0 505   0
+#1   0 221
+```
+
+LOGISTIC REGRESSION CV (5)
+```{r,warning=FALSE}
+set.seed(100)
+fin_logit_5 <- train(bankruptcy ~ ., data = fin_alt_5, method = "glm", 
+          trControl = ctrl, preProcess = c("center","scale"),family="binomial") 
+
+#head(fin_logit_5)
+
+
+#confusion matrx of train model
+conf_mat_logit_5_train<-confusionMatrix(fin_logit_5)
+conf_mat_logit_5_train
+
+#predicting target variable based on the above model
+pred_logit_5 = predict(fin_logit_5, newdata=test_classif_alt_5,type='raw')
+#head(pred_logit_5)
+
+#confusion matrix
+conf_mat_logit_5=as.matrix(confusionMatrix(data=pred_logit_5,(test_classif_alt_5$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of logistic regression with 5 variable altman model")
+conf_mat_logit_5
+
+#    0   1
+#0 458 152
+#1  47  69
+```
+
+
+RANDOM FOREST CV (5)
+```{r}
+set.seed(100)
+#rf_grid <-  expand.grid(mtry = c(floor(sqrt(5) / 10),
+#                        floor(sqrt(5) / 5),
+#                        floor(sqrt(5))))
+fin_rforest_5 <- train(bankruptcy ~ ., data = fin_alt_5, method = "rf", 
+          trControl = ctrl, preProcess = c("center","scale"),metric='Accuracy')
+
+#head(fin_rforest_5)
+
+
+#confusion matrx of train model
+conf_mat_rforest_5_train<-confusionMatrix(fin_rforest_5)
+
+conf_mat_rforest_5_train
+
+#predicting target variable based on the above model
+pred_rforest_5 = predict(fin_rforest_5, newdata=test_classif_alt_5)
+#head(pred_rforest_5)
+
+#confusion matrix
+conf_mat_rforest_5=confusionMatrix(data=pred_rforest_5,(test_classif_alt_5$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of random forest with 5 variable altman model")
+conf_mat_rforest_5
+
+#          Reference
+#Prediction   0   1
+#         0 505   0
+#         1   0 221
+```
+
+ANN CV (5)
+```{r}
+set.seed(100)
+fin_ann_5<- train(bankruptcy ~ ., data = fin_alt_5,
+    method = "nnet",metric='Accuracy', maxit = 30,preProcess = c("center","scale"),trControl=ctrl)
+
+#for maxit=10
+# Reference
+#Prediction    0    1
+#         0 4149  722
+#         1  163  716
+#for maxit=30          Reference
+#Prediction    0    1
+#         0 4209  758
+#         1  103  680
+#with seed maxit=30
+#         Reference
+#Prediction    0    1
+#         0 4236  783
+#         1   76  655
+
+#head(fin_ann_5)
+
+#confusion matrix of train model
+conf_mat_ann_5_train<-confusionMatrix(fin_ann_5)
+conf_mat_ann_5_train
+
+#predicting target variable based on the above model
+pred_ann_5 = predict(fin_ann_5, newdata=test_classif_alt_5,type='raw')
+#head(pred_ann_5)
+
+#confusion matrix
+conf_mat_ann_5=confusionMatrix(data=pred_ann_5,(test_classif_alt_5$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of ANN with 5 variable altman model")
+conf_mat_ann_5
+
+#          Reference
+#Prediction   0   1
+#         0 449 103
+#         1  56 118
+```
+SVM LINEAR CV (5)
+```{r}
+set.seed(100)
+fin_svm_l_5 <- train( bankruptcy ~., data = fin_alt_5, method = "svmLinear",
+trControl = ctrl,  preProcess = c("center","scale") ,metric='Accuracy' )
+#head(fin_svm_l_5)
+
+#confusion matrix of train model
+conf_mat_svm_l_5_train<-confusionMatrix(fin_svm_l_5)
+
+conf_mat_svm_l_5_train
+
+#predicting target variable based on the above model
+pred_svm_l_5 = predict(fin_svm_l_5, newdata=test_classif_alt_5)
+#head(pred_svm_l_5)
+
+#confusion matrix
+conf_mat_svm_l_5=confusionMatrix(data=pred_svm_l_5,(test_classif_alt_5$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of svm linear with 5 variable altman model")
+conf_mat_svm_l_5
+
+#          Reference
+#Prediction   0   1
+#         0 505 221
+#         1   0   0
+```
+
+SVM RADIAL CV (5)
+```{r}
+set.seed(100)
+fin_svm_r_5 <- train( bankruptcy ~., data = fin_alt_5, method = "svmRadial",
+trControl = ctrl,  preProcess = c("center","scale"),  metric='Accuracy' )
+#head(fin_svm_r_5)
+
+#confusion matrix of train model
+conf_mat_svm_r_5_train<-confusionMatrix(fin_svm_r_5)
+
+conf_mat_svm_r_5_train
+
+#predicting target variable based on the above model
+pred_svm_r_5 = predict(fin_svm_r_5, newdata=test_classif_alt_5)
+#head(pred_svm_r_5)
+
+#confusion matrix
+conf_mat_svm_r_5=confusionMatrix(data=pred_svm_r_5,(test_classif_alt_5$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of svm radial with 5 variable altman model")
+conf_mat_svm_r_5
+
+#          Reference
+#Prediction   0   1
+#         0 454  98
+#         1  51 123
+```
+
+
+MDA  CV (5)
+```{r}
+set.seed(100)
+fin_mda_5 <- train( bankruptcy ~., data = fin_alt_5, method = "lda",
+trControl = ctrl,  preProcess = c("center","scale"),  metric='Accuracy' )
+#head(fin_mda_5)
+
+#confusion matrix of train model
+conf_mat_mda_5_train<-confusionMatrix(fin_mda_5)
+
+conf_mat_mda_5_train
+
+#predicting target variable based on the above model
+pred_mda_5 = predict(fin_mda_5, newdata=test_classif_alt_5)
+#head(pred_mda_5)
+
+#confusion matrix
+conf_mat_mda_5=confusionMatrix(data=pred_mda_5,(test_classif_alt_5$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of mda with 5 variable altman model")
+conf_mat_mda_5
+
+#          Reference
+#Prediction   0   1
+#         0 468 175
+#         1  37  46
+```
+
+
+#########################################################################
+#########################################################################
+# ALTMAN 11 VARIABLE CROSS VALIDATION MODELLING
+
+BAGGING CV (11)
+```{r}
+set.seed(100)
+typeof(fin_alt_11$bankruptcy)
+
+fin_bag_11 <- train(bankruptcy ~ ., data = fin_alt_11, method = "treebag", 
+          trControl = ctrl, preProcess = c("center","scale"),tuneLength = 5,verbose=FALSE) 
+#head(fin_bag_11)
+
+#confusion matrix of train model
+conf_mat_bag_11_train<-confusionMatrix(fin_bag_11)
+
+conf_mat_bag_11_train
+
+#predicting target variable based on the above model
+pred_bag_11 = predict(fin_bag_11, newdata=test_classif_alt_11)
+#head(pred_bag_11)
+
+#testing$bankruptcy
+#confusion matrix
+conf_mat_bag_11=as.matrix(confusionMatrix(data=pred_bag_11,(test_classif_alt_11$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of bagging with 11 variable altman model")
+conf_mat_bag_11
+
+#    0   1
+#0 505   1
+#1   0 220
+```
+
+BOOSTING CV  (11)
+```{r echo=FALSE, message=FALSE}
+set.seed(100)
+mtry <- sqrt(ncol(fin_alt_11[1:11]))
+fin_boost_11 <- train(bankruptcy ~ ., data = fin_alt_11, method = "gbm", 
+          trControl = ctrl, preProcess = c("center","scale"),distribution="bernoulli",verbose=FALSE) 
+
+#head(fin_boost_11)
+
+#confusion matrix of train model
+conf_mat_boost_11_train<-confusionMatrix(fin_boost_11)
+
+conf_mat_boost_11_train
+#predicting target variable based on the above model
+pred_boost_11 = predict(fin_boost_11, newdata=test_classif_alt_11)
+#head(pred_boost_11)
+
+#confusion matrix
+conf_mat_boost_11=as.matrix(confusionMatrix(data=pred_boost_11,(test_classif_alt_11$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of boosting with 11 variable altman model")
+conf_mat_boost_11
+
+#    0   1
+#0 505   0
+#1   0 221
+```
+
+LOGISTIC REGRESSION  CV (11)
+```{r,warning=FALSE}
+set.seed(100)
+fin_logit_11 <- train(bankruptcy ~ ., data = fin_alt_11, method = "glm", 
+          trControl = ctrl, preProcess = c("center","scale"),family="binomial") 
+
+#head(fin_logit_11)
+
+#confusion matrix of train model
+conf_mat_logit_11_train<-confusionMatrix(fin_logit_11)
+
+conf_mat_logit_11_train
+
+#predicting target variable based on the above model
+pred_logit_11 = predict(fin_logit_11, newdata=test_classif_alt_11,type='raw')
+#head(pred_logit_11)
+
+#confusion matrix
+conf_mat_logit_11=as.matrix(confusionMatrix(data=pred_logit_11,(test_classif_alt_11$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of logistic regression with 11 variable altman model")
+conf_mat_logit_11
+
+#    0   1
+#0 453 146
+#1  52  75
+```
+
+
+RANDOM FOREST CV  (11)
+```{r}
+set.seed(100)
+fin_rforest_11 <- train(bankruptcy ~ ., data = fin_alt_11, method = "rf", 
+          trControl = ctrl, preProcess = c("center","scale"),metric='Accuracy')
+
+#head(fin_rforest_11)
+
+#confusion matrix of train model
+conf_mat_rforest_11_train<-confusionMatrix(fin_rforest_11)
+
+conf_mat_rforest_11_train
+
+#predicting target variable based on the above model
+pred_rforest_11 = predict(fin_rforest_11, newdata=test_classif_alt_11)
+#head(pred_rforest_11)
+
+#confusion matrix
+conf_mat_rforest_11=confusionMatrix(data=pred_rforest_11,(test_classif_alt_11$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of random forest with 11 variable altman model")
+conf_mat_rforest_11
+
+#        Reference
+#Prediction   0   1
+#         0 505   0
+#         1   0 221
+```
+
+ANN CV  (11)
+```{r}
+
+set.seed(100)
+
+fin_ann_11<- train(bankruptcy ~ ., data = fin_alt_11,
+    method = "nnet",metric='Accuracy', maxit = 30,preProcess = c("center","scale"),trControl=ctrl)
+
+#incase of Error in gzfile(file, "wb") : cannot open the connection reloading R will solve issue
+
+#head(fin_ann_11)
+
+#confusion matrx of train model
+conf_mat_ann_11_train<-confusionMatrix(fin_ann_11)
+
+conf_mat_ann_11_train
+
+#predicting target variable based on the above model
+pred_ann_11 = predict(fin_ann_11, newdata=test_classif_alt_11,type='raw')
+#head(pred_ann_11)
+#confusion matrix
+conf_mat_ann_11=confusionMatrix(data=pred_ann_11,(test_classif_alt_11$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of ANN with 11 variable altman model")
+conf_mat_ann_11
+
+#          Reference
+#Prediction   0   1
+#         0 449  95
+#         1  56 126
+```
+SVM LINEAR  CV (11)
+```{r}
+set.seed(100)
+fin_svm_l_11 <- train( bankruptcy ~., data = fin_alt_11, method = "svmLinear",
+trControl = ctrl,  preProcess = c("center","scale") ,metric='Accuracy' )
+#head(fin_svm_l_11)
+
+#confusion matrix of train model
+conf_mat_svm_l_11_train<-confusionMatrix(fin_svm_l_11)
+
+conf_mat_svm_l_11_train
+
+#predicting target variable based on the above model
+pred_svm_l_11 = predict(fin_svm_l_11, newdata=test_classif_alt_11)
+#head(pred_svm_l_11)
+
+#confusion matrix
+conf_mat_svm_l_11=confusionMatrix(data=pred_svm_l_11,(test_classif_alt_11$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of svm linear with 11 variable altman model")
+conf_mat_svm_l_11
+
+#         Reference
+#Prediction   0   1
+#         0 472 183
+#         1  33  38
+```
+
+SVM RADIAL  CV (11)
+```{r}
+set.seed(100)
+fin_svm_r_11 <- train( bankruptcy ~., data = fin_alt_11, method = "svmRadial",
+trControl = ctrl,  preProcess = c("center","scale") ,metric='Accuracy' )
+#head(fin_svm_r_11)
+
+#confusion matrix of train model
+conf_mat_svm_r_11_train<-confusionMatrix(fin_svm_r_11)
+
+conf_mat_svm_r_11_train
+
+#predicting target variable based on the above model
+pred_svm_r_11 = predict(fin_svm_r_11, newdata=test_classif_alt_11)
+#head(pred_svm_r_11)
+
+#confusion matrix
+conf_mat_svm_r_11=confusionMatrix(data=pred_svm_r_11,(test_classif_alt_11$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of svm radial with 11 variable altman model")
+conf_mat_svm_r_11
+
+#          Reference
+#Prediction   0   1
+#         0 476  85
+#         1  29 136
+```
+
+MDA  CV (11)
+```{r}
+set.seed(100)
+fin_mda_11 <- train( bankruptcy ~., data = fin_alt_11, method = "lda",
+trControl = ctrl,  preProcess = c("center","scale"),  metric='Accuracy' )
+#head(fin_mda_11)
+
+
+#confusion matrix of train model
+conf_mat_mda_11_train<-confusionMatrix(fin_mda_11)
+
+conf_mat_mda_11_train
+
+#predicting target variable based on the above model
+pred_mda_11 = predict(fin_mda_11, newdata=test_classif_alt_11)
+#head(pred_mda_11)
+
+#confusion matrix
+conf_mat_mda_11=confusionMatrix(data=pred_mda_11,(test_classif_alt_11$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of mda with 11 variable altman model")
+conf_mat_mda_11
+
+#          Reference
+#Prediction   0   1
+#         0 464 174
+#         1  41  47
+```
+
+
+
+######################################
+#ROC 
+
+```{r}
+#bagging
+library(stats)
+library(pROC)
+library(ROCR)
+
+prob_bag_11 <- predict(fin_bag_11, newdata=test_classif_alt_11, type="prob")
+pred_bag_11<- prediction(prob_bag_11[,2], test_classif_alt_11$bankruptcy)
+perf_bag_11 <- performance(pred_bag_11, measure = "tpr", x.measure = "fpr")
+
+auc_bag_11 <- performance(pred_bag_11, measure = "auc")
+auc_bag_11 <- auc_bag_11@y.values[[1]]
+auc_bag_11
+
+#boosting
+prob_boost_11 <- predict(fin_boost_11, newdata=test_classif_alt_11, type="prob")
+pred_boost_11<- prediction(prob_boost_11[,2], test_classif_alt_11$bankruptcy)
+perf_boost_11 <- performance(pred_boost_11, measure = "tpr", x.measure = "fpr")
+
+auc_boost_11 <- performance(pred_boost_11, measure = "auc")
+auc_boost_11 <- auc_boost_11@y.values[[1]]
+auc_boost_11
+
+#logistic regression
+prob_logit_11 <- predict(fin_logit_11, newdata=test_classif_alt_11, type="prob")
+pred_logit_11<- prediction(prob_logit_11[,2], test_classif_alt_11$bankruptcy)
+perf_logit_11 <- performance(pred_logit_11, measure = "tpr", x.measure = "fpr")
+
+auc_logit_11 <- performance(pred_logit_11, measure = "auc")
+auc_logit_11 <- auc_logit_11@y.values[[1]]
+auc_logit_11
+
+#random forest
+prob_logit_11 <- predict(fin_logit_11, newdata=test_classif_alt_11, type="prob")
+pred_logit_11<- prediction(prob_logit_11[,2], test_classif_alt_11$bankruptcy)
+perf_logit_11 <- performance(pred_logit_11, measure = "tpr", x.measure = "fpr")
+
+auc_logit_11 <- performance(pred_logit_11, measure = "auc")
+auc_logit_11 <- auc_logit_11@y.values[[1]]
+auc_logit_11
+
+
+#ann
+prob_rforest_11 <- predict(fin_rforest_11, newdata=test_classif_alt_11, type="prob")
+pred_rforest_11<- prediction(prob_rforest_11[,2], test_classif_alt_11$bankruptcy)
+perf_rforest_11 <- performance(pred_rforest_11, measure = "tpr", x.measure = "fpr")
+
+auc_rforest_11 <- performance(pred_rforest_11, measure = "auc")
+auc_rforest_11 <- auc_rforest_11@y.values[[1]]
+auc_rforest_11
+
+
+#ann
+prob_ann_11 <- predict(fin_ann_11, newdata=test_classif_alt_11, type="prob")
+pred_ann_11<- prediction(prob_ann_11[,2], test_classif_alt_11$bankruptcy)
+perf_ann_11 <- performance(pred_ann_11, measure = "tpr", x.measure = "fpr")
+
+auc_ann_11 <- performance(pred_ann_11, measure = "auc")
+auc_ann_11 <- auc_ann_11@y.values[[1]]
+auc_ann_11
+
+#svm linear
+#prob_svm_l_11 <- predict(fin_svm_l_11, newdata=test_classif_alt_11, type="prob")
+#pred_svm_l_11<- prediction(prob_svm_l_11[,2], test_classif_alt_11$bankruptcy)
+#perf_svm_l_11 <- performance(pred_svm_l_11, measure = "tpr", x.measure = "fpr")
+
+#auc_svm_l_11 <- performance(pred_svm_l_11, measure = "auc")
+#auc_svm_l_11 <- auc_svm_l_11@y.values[[1]]
+#auc_svm_l_11
+
+#error NAs in predict
+
+#svm radial
+#prob_svm_r_11 <- predict(fin_svm_r_11, newdata=test_classif_alt_11, type="prob")
+#pred_svm_r_11<- prediction(prob_svm_r_11[,2], test_classif_alt_11$bankruptcy)
+#perf_svm_r_11 <- performance(pred_svm_r_11, measure = "tpr", x.measure = "fpr")
+
+#auc_svm_r_11 <- performance(pred_svm_l_11, measure = "auc")
+#auc_svm_r_11 <- auc_svm_r_11@y.values[[1]]
+#auc_svm_r_11
+#error NAs in predict
+#mda
+prob_mda_11 <- predict(fin_mda_11, newdata=test_classif_alt_11, type="prob")
+pred_mda_11<- prediction(prob_bag_11[,2], test_classif_alt_11$bankruptcy)
+perf_mda_11 <- performance(pred_mda_11, measure = "tpr", x.measure = "fpr")
+
+auc_mda_11 <- performance(pred_mda_11, measure = "auc")
+auc_mda_11 <- auc_mda_11@y.values[[1]]
+auc_mda_11
+
+```
+Plotting auc curves for all techniques
+```{r plot roc}
+
+plot(perf_bag_11,col='red',main="ROC curves of all 8 classification techniques",xlab="FPR",ylab="TPR",col.main='sea green',legend=TRUE,auc=TRUE,add.legend=TRUE)
+
+plot(perf_boost_11,col='blue',xlab="FPR",ylab="TPR",legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+
+plot(perf_logit_11,col='green',xlab="FPR",ylab="TPR",legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+
+plot(perf_rforest_11,col='purple',xlab="FPR",ylab="TPR",legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+
+plot(perf_ann_11,col='brown',xlab="FPR",ylab="TPR",legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+#plot(perf_svm_l_11,col='yellow',xlab="FPR",ylab="TPR",col.main='sea green',legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+#plot(perf_svm_r_11,col='yellow',xlab="FPR",ylab="TPR",col.main='sea green',legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+plot(perf_mda_11,col='yellow',xlab="FPR",ylab="TPR",legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+bag<-paste("bag auc:",round(as.numeric(auc_bag_11), digits = 2))
+boost<-paste("boost auc:",round(as.numeric(auc_boost_11), digits = 2))
+logit<-paste("logit auc:",round(as.numeric(auc_logit_11), digits = 2))
+rforest<-paste("random forest is:",round(as.numeric(auc_rforest_11), digits = 2))
+ann<-paste("ann auc is:",round(as.numeric(auc_ann_11), digits = 2))
+mda<-paste("mda auc is:",round(as.numeric(auc_mda_11), digits = 2))
+
+legend("bottomright" ,c(bag,boost,logit,rforest,ann,mda), fill = c("red","blue","green","purple","brown","yellow"),cex=0.6)
+```
+
+################ TASK2 ##########################
+#################################################
+
+```{r}
+cols <- c(22,23,25:30,32,34,36,37,39,41,47,48,49,51,52,62)
+
+
+fin_alt_new<-fin_sample2[,cols]
+colnames(fin_alt_new)
+
+#renaming column names, removing paranthesis
+colnames(fin_alt_new)<-c('EPS','PE','liquidity_X1','profitability_X2','productivity_X3','leverage_X4','assetturnover_X5','operationalmargin_OM','growthassets_GA','growthsales_GS','growthemployees_GE','ROE','CROE','CPB','roa','quick_ratio','current_ratio','dscr','cashtocurrentassets','bankruptcy')
+colnames(fin_alt_new)
+#data type of all columns in sliced data for 11 variable analysis
+sapply(fin_alt_new,class)
+#top rows
+head(fin_alt_new)
+
+```
+
+#Checking missing data for updated dataset fin
+```{r  , echo=FALSE}
+#setting counter to 0; which counts number of columns that has NAs
+c=0
+cat("Checking for missing data:\n")
+for (i in colnames(as.data.frame(fin_alt_new))){
+if(sum(is.na(fin_alt_new[[i]]))>0 ){print(i) 
+  c=c+1} }
+if (c>0){print("Nulls in the dataset")} else {print("No nulls in the dataset")}
+cat("No.of columns that has nulls:",c)
+```
+#HANDLING DATA TYPES
+```{r}
+
+library(stats)
+sapply(fin_alt_new[1:19],class)
+fin_alt_new$roa<-as.numeric(fin_alt_new$roa)
+fin_alt_new$quick_ratio<-as.numeric(fin_alt_new$quick_ratio)
+fin_alt_new$current_ratio<-as.numeric(fin_alt_new$current_ratio)
+fin_alt_new$dscr<-as.numeric(fin_alt_new$dscr)
+fin_alt_new$cashtocurrentassets<-as.numeric(fin_alt_new$cashtocurrentassets)
+
+```
+
+
+SPLITTING DATA
+```{r}
+#setting seed for reproduceability
+set.seed(100)
+#splitting data in to 70:30 ratio
+flag2 = sample(2, nrow(fin_alt_new), replace = TRUE, prob=c(0.7, 0.3))
+#train set
+train_classif_alt_new = fin_alt_new[flag2==1,]
+cat("Number of rows in training set: \n",nrow(train_classif_alt_new))
+test_classif_alt_new = fin_alt_new[flag2 == 2,]
+head(test_classif_alt_new)
+cat("\n Number of rows in test set: \n",nrow(test_classif_alt_new))
+print("distinct classes frequency in train dataset")
+table(train_classif_alt_new$bankruptcy)
+print("distinct classes frequency in test dataset")
+table(test_classif_alt_new$bankruptcy)
+```
+
+#########################################################################
+#########################################################################
+# ALTMAN ALL EXTRA VARIABLE MODELLING WITHOUT CV
+
+BAGGING NCV (NEW ALL)
+```{r   }
+set.seed(100)
+library(ipred)
+library(caret)
+unique(fin_alt_new$bankruptcy)
+sapply(fin_alt_new,class)
+fin_bag_ncv_new <- bagging(bankruptcy ~ ., data = train_classif_alt_new, 
+                         scale = TRUE)  
+
+#predicting target variable based on the above model
+pred_bag_ncv_new = predict(fin_bag_ncv_new, newdata=test_classif_alt_new)
+#head(pred_bag_ncv_11)
+
+#testing$bankruptcy
+#confusion matrix
+conf_mat_bag_ncv_new=as.matrix(confusionMatrix(data=pred_bag_ncv_new,(test_classif_alt_new$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of bagging with extra variables altman model with out cross validation")
+conf_mat_bag_ncv_new
+#    0   1
+#0 466  61
+#1  39 160
+``` 
+
+BOOSTING NCV (NEW ALL)
+```{r   }
+set.seed(100)
+library(gbm)
+mtry <- sqrt(ncol(fin_alt_new[1:16]))
+fin_boost_ncv_new <- gbm(as.character(bankruptcy) ~ ., data =train_classif_alt_new,
+                   distribution="bernoulli",verbose = FALSE) 
+
+#predicting target variable based on the above model
+pred_boost_ncv_new = predict(fin_boost_ncv_new, newdata=test_classif_alt_new,type="response")
+unique(pred_boost_ncv_new)
+predicted_labels_boost_ncv_new=as.factor(ifelse(pred_boost_ncv_new>0.5,1,0))
+levels(predicted_labels_boost_ncv_new)
+length(test_classif_alt_new$bankruptcy)
+length(predicted_labels_boost_ncv_new)
+#confusion matrix
+conf_mat_boost_ncv_new=as.matrix(confusionMatrix(data=predicted_labels_boost_ncv_new,(test_classif_alt_new$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of boosting with extra variables altman model with out cross validation")
+conf_mat_boost_ncv_new
+#or table(predicted_labels_ncv_new,test_classif_alt_new$bankruptcy)
+
+#    0   1
+#0 468  80
+#1  37 141
+```
+
+LOGISTIC REGRESSION NCV (NEW ALL)
+```{r   }
+library(stats)
+set.seed(100)
+fin_logit_ncv_new <- glm(bankruptcy ~ ., data = train_classif_alt_new, family="binomial") 
+ 
+#predicting target variable based on the above model
+pred_logit_ncv_new = predict(fin_logit_ncv_new, newdata=test_classif_alt_new,
+                            type='response')
+#head(pred_logit_ncv_new)
+predicted_labels_logit_ncv_new=as.factor(ifelse(pred_logit_ncv_new>0.5,1,0))
+
+#confusion matrix
+conf_mat_logit_ncv_new=as.matrix(confusionMatrix(data=predicted_labels_logit_ncv_new,(test_classif_alt_new$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of logistic regression with extra variables altman model with out cross validation")
+conf_mat_logit_ncv_new
+#   0   1
+#0 432  75
+#1  73 146
+```
+
+RANDOM FOREST  NCV (NEW ALL)
+```{r   }
+set.seed(100)
+library(randomForest)
+
+fin_rforest_ncv_new <- randomForest(bankruptcy ~ ., data = train_classif_alt_new, 
+                              importance = TRUE)
+
+
+#predicting target variable based on the above model
+pred_rforest_ncv_new = predict(fin_rforest_ncv_new, newdata=test_classif_alt_new)
+#head(pred_rforest_ncv_new)
+
+#confusion matrix
+conf_mat_rforest_ncv_new=confusionMatrix(data=pred_rforest_ncv_new,(test_classif_alt_new$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of random forest with extra variables altman model with out cross validation")
+conf_mat_rforest_ncv_new
+#          Reference
+#Prediction   0   1
+#         0 470  59
+#         1  35 162
+```
+ANN NCV (NEW ALL)
+```{r   }
+set.seed(100)
+library(nnet)
+fin_ann_ncv_new<- nnet(bankruptcy ~ ., data = train_classif_alt_new, size = 10)
+
+#incase of Error in gzfile(file, "wb") : cannot open the connection reloading R will solve issue
+
+
+#predicting target variable based on the above model
+pred_ann_ncv_new = predict(fin_ann_ncv_new, newdata=test_classif_alt_new,type='raw')
+#head(pred_ann_ncv_new)
+predicted_labels_ann_ncv_new=as.factor(ifelse(pred_ann_ncv_new>0.5,1,0))
+
+#confusion matrix
+conf_mat_ann_ncv_new=confusionMatrix(data=predicted_labels_ann_ncv_new,(test_classif_alt_new$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of ANN with extra variables altman model with out cross validation")
+conf_mat_ann_ncv_new
+#          Reference
+#Prediction   0   1
+#         0 442  82
+#         1  63 139
+```
+
+SVM LINEAR NCV (NEW ALL)
+```{r    }
+set.seed(100)
+library(e1071)
+fin_svm_l_ncv_new <- svm( bankruptcy ~., data = train_classif_alt_new, kernal ="linear", 
+                    cost = 10, scale = TRUE)
+
+#predicting target variable based on the above model
+pred_svm_l_ncv_new = predict(fin_svm_l_ncv_new, newdata=test_classif_alt_new)
+#head(pred_svm_l_ncv_new)
+
+#confusion matrix
+conf_mat_svm_l_ncv_new=confusionMatrix(data=pred_svm_l_ncv_new,(test_classif_alt_new$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of svm linear with extra variables altman model with our cross validation")
+conf_mat_svm_l_ncv_new
+#          Reference
+#Prediction   0   1
+#         0 441 100
+#         1  64 121
+```
+
+SVM RADIAL NCV (NEW ALL)
+```{r   }
+set.seed(100)
+fin_svm_r_ncv_new <- svm( bankruptcy ~., data = train_classif_alt_new, kernal = "radial",
+                    gamma = 1, cost = 10, scale=TRUE)
+
+#predicting target variable based on the above model
+pred_svm_r_ncv_new = predict(fin_svm_r_ncv_new, newdata=test_classif_alt_new)
+#head(pred_svm_r_ncv_new)
+
+#confusion matrix
+conf_mat_svm_r_ncv_new=confusionMatrix(data=pred_svm_r_ncv_new,(test_classif_alt_new$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of svm radial with extra variables altman model with out cross validation")
+conf_mat_svm_r_ncv_new
+#          Reference
+#Prediction   0   1
+#         0 449 114
+#         1  56 107
+```
+
+MDA NCV  (NEW ALL)
+```{r   }
+set.seed(100)
+library(MASS)
+fin_mda_ncv_new <- lda( bankruptcy ~., data = train_classif_alt_new, scale = TRUE)
+
+#predicting target variable based on the above model
+pred_mda_ncv_new = predict(fin_mda_ncv_new,newdata=test_classif_alt_new,prior = fin_mda_ncv_new$prior)
+length(pred_mda_ncv_new)
+#head(pred_mda_ncv_new)
+#confusion matrix
+print("Confusion matrix of mda with extra variables altman model")
+table(pred_mda_ncv_new$class,test_classif_alt_new$bankruptcy)
+#     0   1
+#  0 467 166
+#  1  38  55
+```
+
+
+
+#########################################################################
+#########################################################################
+# ALTMAN 19 VARIABLE CROSS VALIDATION MODELLING 
+
+BAGGING CV (NEW ALL)
+```{r}
+set.seed(100)
+typeof(fin_alt_new$bankruptcy)
+
+fin_bag_new <- train(bankruptcy ~ ., data = fin_alt_new, method = "treebag", 
+          trControl = ctrl, tuneLength = 5,verbose=FALSE) 
+#head(fin_bag_new)
+
+#confusion matrix of train model
+conf_mat_bag_new_train<-confusionMatrix(fin_bag_new)
+
+conf_mat_bag_new_train
+
+#predicting target variable based on the above model
+pred_bag_new = predict(fin_bag_new, newdata=test_classif_alt_new)
+#head(pred_bag_new)
+
+#testing$bankruptcy
+#confusion matrix
+conf_mat_bag_new=as.matrix(confusionMatrix(data=pred_bag_new,(test_classif_alt_new$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of bagging with 11 variable altman model")
+conf_mat_bag_new
+
+#    0   1
+#0 505   1
+#1   0 220
+```
+
+BOOSTING CV  (NEW ALL)
+```{r echo=FALSE, message=FALSE}
+set.seed(100)
+mtry <- sqrt(ncol(fin_alt_new[1:11]))
+fin_boost_new <- train(bankruptcy ~ ., data = fin_alt_new, method = "gbm", 
+          trControl = ctrl,distribution="bernoulli",verbose=FALSE) 
+
+#head(fin_boost_new)
+
+#confusion matrix of train model
+conf_mat_boost_new_train<-confusionMatrix(fin_boost_new)
+
+conf_mat_boost_new_train
+#predicting target variable based on the above model
+pred_boost_new = predict(fin_boost_new, newdata=test_classif_alt_new)
+#head(pred_boost_new)
+
+#confusion matrix
+conf_mat_boost_new=as.matrix(confusionMatrix(data=pred_boost_new,(test_classif_alt_new$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of boosting with 11 variable altman model")
+conf_mat_boost_new
+
+#    0   1
+#0 505   0
+#1   0 221
+```
+
+LOGISTIC REGRESSION  CV (NEW ALL)
+```{r,warning=FALSE}
+set.seed(100)
+fin_logit_new <- train(bankruptcy ~ ., data = fin_alt_new, method = "glm", 
+          trControl = ctrl, family="binomial") 
+
+#head(fin_logit_new)
+
+#confusion matrix of train model
+conf_mat_logit_new_train<-confusionMatrix(fin_logit_new)
+
+conf_mat_logit_new_train
+
+#predicting target variable based on the above model
+pred_logit_new = predict(fin_logit_new, newdata=test_classif_alt_new,type='raw')
+#head(pred_logit_new)
+
+#confusion matrix
+conf_mat_logit_new=as.matrix(confusionMatrix(data=pred_logit_new,(test_classif_alt_new$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of logistic regression with 11 variable altman model")
+conf_mat_logit_new
+
+#    0   1
+#0 453 146
+#1  52  75
+```
+
+
+RANDOM FOREST CV  (NEW ALL)
+```{r}
+set.seed(100)
+fin_rforest_new <- train(bankruptcy ~ ., data = fin_alt_new, method = "rf", 
+          trControl = ctrl, metric='Accuracy')
+
+#head(fin_rforest_new)
+
+#confusion matrix of train model
+conf_mat_rforest_new_train<-confusionMatrix(fin_rforest_new)
+
+conf_mat_rforest_new_train
+
+#predicting target variable based on the above model
+pred_rforest_new = predict(fin_rforest_new, newdata=test_classif_alt_new)
+#head(pred_rforest_new)
+
+#confusion matrix
+conf_mat_rforest_new=confusionMatrix(data=pred_rforest_new,(test_classif_alt_new$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of random forest with 11 variable altman model")
+conf_mat_rforest_new
+
+#        Reference
+#Prediction   0   1
+#         0 505   0
+#         1   0 221
+```
+
+ANN CV  (NEW ALL)
+```{r}
+
+set.seed(100)
+
+fin_ann_new<- train(bankruptcy ~ ., data = fin_alt_new,
+    method = "nnet",metric='Accuracy', maxit = 30,trControl=ctrl)
+
+#incase of Error in gzfile(file, "wb") : cannot open the connection reloading R will solve issue
+
+#head(fin_ann_new)
+
+#confusion matrx of train model
+conf_mat_ann_new_train<-confusionMatrix(fin_ann_new)
+
+conf_mat_ann_new_train
+
+#predicting target variable based on the above model
+pred_ann_new = predict(fin_ann_new, newdata=test_classif_alt_new,type='raw')
+#head(pred_ann_new)
+#confusion matrix
+conf_mat_ann_new=confusionMatrix(data=pred_ann_new,(test_classif_alt_new$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of ANN with 11 variable altman model")
+conf_mat_ann_new
+
+#          Reference
+#Prediction   0   1
+#         0 449  95
+#         1  56 126
+```
+SVM LINEAR  CV (NEW ALL)
+```{r}
+set.seed(100)
+fin_svm_l_new <- train( bankruptcy ~., data = fin_alt_new, method = "svmLinear",
+trControl = ctrl,  metric='Accuracy' )
+#head(fin_svm_l_new)
+
+#confusion matrix of train model
+conf_mat_svm_l_new_train<-confusionMatrix(fin_svm_l_new)
+
+conf_mat_svm_l_new_train
+
+#predicting target variable based on the above model
+pred_svm_l_new = predict(fin_svm_l_new, newdata=test_classif_alt_new)
+#head(pred_svm_l_new)
+
+#confusion matrix
+conf_mat_svm_l_new=confusionMatrix(data=pred_svm_l_new,(test_classif_alt_new$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of svm linear with 11 variable altman model")
+conf_mat_svm_l_new
+
+#         Reference
+#Prediction   0   1
+#         0 472 183
+#         1  33  38
+```
+
+SVM RADIAL  CV (NEW ALL)
+```{r}
+set.seed(100)
+fin_svm_r_new <- train( bankruptcy ~., data = fin_alt_new, method = "svmRadial",
+trControl = ctrl,  metric='Accuracy' )
+#head(fin_svm_r_new)
+
+#confusion matrix of train model
+conf_mat_svm_r_new_train<-confusionMatrix(fin_svm_r_new)
+
+conf_mat_svm_r_new_train
+
+#predicting target variable based on the above model
+pred_svm_r_new = predict(fin_svm_r_new, newdata=test_classif_alt_new)
+#head(pred_svm_r_new)
+
+#confusion matrix
+conf_mat_svm_r_new=confusionMatrix(data=pred_svm_r_new,(test_classif_alt_new$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of svm radial with 11 variable altman model")
+conf_mat_svm_r_new
+
+#          Reference
+#Prediction   0   1
+#         0 476  85
+#         1  29 136
+```
+
+MDA  CV (NEW ALL)
+```{r}
+set.seed(100)
+fin_mda_new <- train( bankruptcy ~., data = fin_alt_new, method = "lda",
+trControl = ctrl,    metric='Accuracy' )
+#head(fin_mda_new)
+
+
+#confusion matrix of train model
+conf_mat_mda_new_train<-confusionMatrix(fin_mda_new)
+
+conf_mat_mda_new_train
+
+#predicting target variable based on the above model
+pred_mda_new = predict(fin_mda_new, newdata=test_classif_alt_new)
+#head(pred_mda_new)
+
+#confusion matrix
+conf_mat_mda_new=confusionMatrix(data=pred_mda_new,(test_classif_alt_new$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of mda with 11 variable altman model")
+conf_mat_mda_new
+
+#          Reference
+#Prediction   0   1
+#         0 464 174
+#         1  41  47
+```
+
+########
+CHECKING SIGNIFICANCE
+
+```{r}
+library(stats)
+sapply(fin_alt_new[1:19],class)
+fin_alt_new$roa<-as.numeric(fin_alt_new$roa)
+fin_alt_new$quick_ratio<-as.numeric(fin_alt_new$quick_ratio)
+fin_alt_new$current_ratio<-as.numeric(fin_alt_new$current_ratio)
+fin_alt_new$dscr<-as.numeric(fin_alt_new$dscr)
+fin_alt_new$cashtocurrentassets<-as.numeric(fin_alt_new$cashtocurrentassets)
+
+sapply(fin_alt_new[1:19],class)
+fin_pca = prcomp(fin_alt_new[1:19], center = TRUE, scale = TRUE)
+fin_pca
+#Obtain a summary from the PCA results:
+summary(fin_pca)#to obtain the importance of components.
+#screeplot:
+screeplot(fin_pca, type="line")
+
+library(factoextra)
+
+fviz_eig(fin_pca, addlabels = TRUE, ylim = c(0, 50),xlim=c(0,16))
+
+```
+#relative importance of variables
+```{r}
+colnames(fin_alt_new)
+sapply(fin_alt_new,class)
+## regression using r
+reg <- lm(as.numeric(bankruptcy) ~ EPS+PE+liquidity_X1+profitability_X2+productivity_X3+leverage_X4+assetturnover_X5+operationalmargin_OM+growthassets_GA+growthsales_GS+growthemployees_GE+ROE+CROE+CPB+roa+quick_ratio+current_ratio+dscr+cashtocurrentassets, data=fin_alt_new)
+reg
+summary(reg)
+## beta values
+library(lm.beta)
+lm.beta(reg)
+
+###dominance using relaimpo package
+#install.packages("relaimpo")
+require(relaimpo)
+
+mm=calc.relimp(reg,type="lmg")
+mm
+barplot(sort(mm$lmg,decreasing=TRUE),ylab="Relative Importance", xlab="Variable",
+main="Relative Importance of Explanatory variables",cex.names=0.7,las=3,col='blue')
+
+```
+
+```{r eval=FALSE, include=FALSE}
+library(caret)
+# train the model
+model <- train(bankruptcy~., data=fin_alt_new, method="lvq", preProcess="scale", trControl=ctrl)
+# estimate variable importance
+importance <- varImp(model, scale=FALSE)
+# summarize importance
+print(importance)
+# plot importance
+plot(importance)
+```
+
+
+#Final model with relatively important terms alone as extra terms
+```{r}
+
+cols <- c(25:30,32,34,36,37,39,41,47,48,49,52,62)
+
+
+fin_alt_new_sig<-fin_sample2[,cols]
+colnames(fin_alt_new_sig)
+sapply(fin_alt_new_sig,class)
+fin_alt_new_sig$roa<-as.numeric(fin_alt_new_sig$roa)
+fin_alt_new_sig$quick_ratio<-as.numeric(fin_alt_new_sig$quick_ratio)
+fin_alt_new_sig$current_ratio<-as.numeric(fin_alt_new_sig$current_ratio)
+fin_alt_new_sig$cashtocurentassets<-as.numeric(fin_alt_new_sig$cashtocurentassets)
+
+colnames(fin_alt_new_sig)
+
+#renaming column names, removing paranthesis
+colnames(fin_alt_new_sig)<-c('liquidity_X1','profitability_X2','productivity_X3','leverage_X4','assetturnover_X5','operationalmargin_OM','growthassets_GA','growthsales_GS','growthemployees_GE','ROE','CROE','CPB','roa','quick_ratio','current_ratio','cashtocurrentassets','bankruptcy')
+colnames(fin_alt_new_sig)
+```
+
+```{r}
+#setting seed for reproduceability
+set.seed(100)
+#splitting data in to 70:30 ratio
+flag1 = sample(2, nrow(fin_alt_new_sig), replace = TRUE, prob=c(0.7, 0.3))
+#train set
+train_classif_alt_new_sig = fin_alt_new_sig[flag1==1,]
+cat("Number of rows in training set: \n",nrow(train_classif_alt_new_sig))
+test_classif_alt_new_sig = fin_alt_new_sig[flag1 == 2,]
+head(test_classif_alt_new_sig)
+cat("\n Number of rows in test set: \n",nrow(test_classif_alt_new_sig))
+print("distinct classes frequency in train dataset")
+table(train_classif_alt_new_sig$bankruptcy)
+print("distinct classes frequency in test dataset")
+table(test_classif_alt_new_sig$bankruptcy)
+```
+
+
+#########################################################################
+#########################################################################
+# ALTMAn MODELLIN WITH SIGNIFICANT EXTRA VARIABLE WITHOUT CV (RELATIVE IMPORTANCE)
+
+BAGGING NCV (NEW SIG)
+```{r   }
+set.seed(100)
+library(ipred)
+library(caret)
+unique(fin_alt_new_sig$bankruptcy)
+sapply(fin_alt_new_sig,class)
+fin_bag_ncv_new_sig <- bagging(bankruptcy ~ ., data = train_classif_alt_new_sig, 
+                         scale = TRUE)  
+
+#predicting target variable based on the above model
+pred_bag_ncv_new_sig = predict(fin_bag_ncv_new_sig, newdata=test_classif_alt_new_sig)
+#head(pred_bag_ncv_11)
+
+#testing$bankruptcy
+#confusion matrix
+conf_mat_bag_ncv_new_sig=as.matrix(confusionMatrix(data=pred_bag_ncv_new_sig,(test_classif_alt_new_sig$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of bagging with extra variables altman model with out cross validation")
+conf_mat_bag_ncv_new_sig
+#    0   1
+#0 466  61
+#1  39 160
+``` 
+
+BOOSTING NCV (NEW SIG)
+```{r   }
+set.seed(100)
+library(gbm)
+mtry <- sqrt(ncol(fin_alt_new_sig[1:16]))
+fin_boost_ncv_new_sig <- gbm(as.character(bankruptcy) ~ ., data =train_classif_alt_new_sig,
+                   distribution="bernoulli",verbose = FALSE) 
+
+#predicting target variable based on the above model
+pred_boost_ncv_new_sig = predict(fin_boost_ncv_new_sig, newdata=test_classif_alt_new_sig,type="response")
+unique(pred_boost_ncv_new_sig)
+predicted_labels_boost_ncv_new_sig=as.factor(ifelse(pred_boost_ncv_new_sig>0.5,1,0))
+levels(predicted_labels_boost_ncv_new_sig)
+length(test_classif_alt_new_sig$bankruptcy)
+length(predicted_labels_boost_ncv_new_sig)
+#confusion matrix
+conf_mat_boost_ncv_new_sig=as.matrix(confusionMatrix(data=predicted_labels_boost_ncv_new_sig,(test_classif_alt_new_sig$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of boosting with extra variables altman model with out cross validation")
+conf_mat_boost_ncv_new_sig
+#or table(predicted_labels_ncv_new_sig,test_classif_alt_new_sig$bankruptcy)
+
+#    0   1
+#0 468  80
+#1  37 141
+```
+
+LOGISTIC REGRESSION NCV (NEW SIG)
+```{r   }
+library(stats)
+set.seed(100)
+fin_logit_ncv_new_sig <- glm(bankruptcy ~ ., data = train_classif_alt_new_sig, family="binomial") 
+ 
+#predicting target variable based on the above model
+pred_logit_ncv_new_sig = predict(fin_logit_ncv_new_sig, newdata=test_classif_alt_new_sig,
+                            type='response')
+#head(pred_logit_ncv_new_sig)
+predicted_labels_logit_ncv_new_sig=as.factor(ifelse(pred_logit_ncv_new_sig>0.5,1,0))
+
+#confusion matrix
+conf_mat_logit_ncv_new_sig=as.matrix(confusionMatrix(data=predicted_labels_logit_ncv_new_sig,(test_classif_alt_new_sig$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of logistic regression with extra variables altman model with out cross validation")
+conf_mat_logit_ncv_new_sig
+#   0   1
+#0 432  75
+#1  73 146
+```
+
+RANDOM FOREST  NCV (NEW SIG)
+```{r   }
+set.seed(100)
+library(randomForest)
+
+fin_rforest_ncv_new_sig <- randomForest(bankruptcy ~ ., data = train_classif_alt_new_sig, 
+                              importance = TRUE)
+
+
+#predicting target variable based on the above model
+pred_rforest_ncv_new_sig = predict(fin_rforest_ncv_new_sig, newdata=test_classif_alt_new_sig)
+#head(pred_rforest_ncv_new_sig)
+
+#confusion matrix
+conf_mat_rforest_ncv_new_sig=confusionMatrix(data=pred_rforest_ncv_new_sig,(test_classif_alt_new_sig$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of random forest with extra variables altman model with out cross validation")
+conf_mat_rforest_ncv_new_sig
+#          Reference
+#Prediction   0   1
+#         0 470  59
+#         1  35 162
+```
+ANN NCV (NEW SIG)
+```{r   }
+set.seed(100)
+library(nnet)
+fin_ann_ncv_new_sig<- nnet(bankruptcy ~ ., data = train_classif_alt_new_sig, size = 10)
+
+#incase of Error in gzfile(file, "wb") : cannot open the connection reloading R will solve issue
+
+
+#predicting target variable based on the above model
+pred_ann_ncv_new_sig = predict(fin_ann_ncv_new_sig, newdata=test_classif_alt_new_sig,type='raw')
+#head(pred_ann_ncv_new_sig)
+predicted_labels_ann_ncv_new_sig=as.factor(ifelse(pred_ann_ncv_new_sig>0.5,1,0))
+
+#confusion matrix
+conf_mat_ann_ncv_new_sig=confusionMatrix(data=predicted_labels_ann_ncv_new_sig,(test_classif_alt_new_sig$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of ANN with extra variables altman model with out cross validation")
+conf_mat_ann_ncv_new_sig
+#          Reference
+#Prediction   0   1
+#         0 442  82
+#         1  63 139
+```
+
+SVM LINEAR NCV (NEW SIG)
+```{r    }
+set.seed(100)
+library(e1071)
+fin_svm_l_ncv_new_sig <- svm( bankruptcy ~., data = train_classif_alt_new_sig, kernal ="linear", 
+                    cost = 10, scale = TRUE)
+
+#predicting target variable based on the above model
+pred_svm_l_ncv_new_sig = predict(fin_svm_l_ncv_new_sig, newdata=test_classif_alt_new_sig)
+#head(pred_svm_l_ncv_new_sig)
+
+#confusion matrix
+conf_mat_svm_l_ncv_new_sig=confusionMatrix(data=pred_svm_l_ncv_new_sig,(test_classif_alt_new_sig$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of svm linear with extra variables altman model with our cross validation")
+conf_mat_svm_l_ncv_new_sig
+#          Reference
+#Prediction   0   1
+#         0 441 100
+#         1  64 121
+```
+
+SVM RADIAL NCV (NEW SIG)
+```{r   }
+set.seed(100)
+fin_svm_r_ncv_new_sig <- svm( bankruptcy ~., data = train_classif_alt_new_sig, kernal = "radial",
+                    gamma = 1, cost = 10, scale=TRUE)
+
+#predicting target variable based on the above model
+pred_svm_r_ncv_new_sig = predict(fin_svm_r_ncv_new_sig, newdata=test_classif_alt_new_sig)
+#head(pred_svm_r_ncv_new_sig)
+
+#confusion matrix
+conf_mat_svm_r_ncv_new_sig=confusionMatrix(data=pred_svm_r_ncv_new_sig,(test_classif_alt_new_sig$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of svm radial with extra variables altman model with out cross validation")
+conf_mat_svm_r_ncv_new_sig
+#          Reference
+#Prediction   0   1
+#         0 449 114
+#         1  56 107
+```
+
+MDA NCV  (NEW SIG)
+```{r   }
+set.seed(100)
+library(MASS)
+fin_mda_ncv_new_sig <- lda( bankruptcy ~., data = train_classif_alt_new_sig, scale = TRUE)
+
+#predicting target variable based on the above model
+pred_mda_ncv_new_sig = predict(fin_mda_ncv_new_sig,newdata=test_classif_alt_new_sig,prior = fin_mda_ncv_new_sig$prior)
+length(pred_mda_ncv_new_sig)
+#head(pred_mda_ncv_new_sig)
+#confusion matrix
+print("Confusion matrix of mda with extra variables altman model")
+table(pred_mda_ncv_new_sig$class,test_classif_alt_new_sig$bankruptcy)
+#     0   1
+#  0 467 166
+#  1  38  55
+```
+
+
+
+#########################################################################
+#########################################################################
+# ALTMAN EXTRA SIGNIFICANT VARIABLE CROSS VALIDATION MODELLING 
+
+BAGGING CV (NEW SIG)
+```{r}
+set.seed(100)
+typeof(fin_alt_new_sig$bankruptcy)
+
+fin_bag_new_sig <- train(bankruptcy ~ ., data = fin_alt_new_sig, method = "treebag", 
+          trControl = ctrl, tuneLength = 5,verbose=FALSE) 
+#head(fin_bag_new_sig)
+
+#confusion matrix of train model
+conf_mat_bag_new_sig_train<-confusionMatrix(fin_bag_new_sig)
+
+conf_mat_bag_new_sig_train
+
+#predicting target variable based on the above model
+pred_bag_new_sig = predict(fin_bag_new_sig, newdata=test_classif_alt_new_sig)
+#head(pred_bag_new_sig)
+
+#testing$bankruptcy
+#confusion matrix
+conf_mat_bag_new_sig=as.matrix(confusionMatrix(data=pred_bag_new_sig,(test_classif_alt_new_sig$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of bagging with 11 variable altman model")
+conf_mat_bag_new_sig
+
+#    0   1
+#0 505   1
+#1   0 220
+```
+
+BOOSTING CV  (NEW SIG)
+```{r echo=FALSE, message=FALSE}
+set.seed(100)
+mtry <- sqrt(ncol(fin_alt_new_sig[1:11]))
+fin_boost_new_sig <- train(bankruptcy ~ ., data = fin_alt_new_sig, method = "gbm", 
+          trControl = ctrl,distribution="bernoulli",verbose=FALSE) 
+
+#head(fin_boost_new_sig)
+
+#confusion matrix of train model
+conf_mat_boost_new_sig_train<-confusionMatrix(fin_boost_new_sig)
+
+conf_mat_boost_new_sig_train
+#predicting target variable based on the above model
+pred_boost_new_sig = predict(fin_boost_new_sig, newdata=test_classif_alt_new_sig)
+#head(pred_boost_new_sig)
+
+#confusion matrix
+conf_mat_boost_new_sig=as.matrix(confusionMatrix(data=pred_boost_new_sig,(test_classif_alt_new_sig$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of boosting with 11 variable altman model")
+conf_mat_boost_new_sig
+
+#    0   1
+#0 505   0
+#1   0 221
+```
+
+LOGISTIC REGRESSION  CV (NEW SIG)
+```{r,warning=FALSE}
+set.seed(100)
+fin_logit_new_sig <- train(bankruptcy ~ ., data = fin_alt_new_sig, method = "glm", 
+          trControl = ctrl, family="binomial") 
+
+#head(fin_logit_new_sig)
+
+#confusion matrix of train model
+conf_mat_logit_new_sig_train<-confusionMatrix(fin_logit_new_sig)
+
+conf_mat_logit_new_sig_train
+
+#predicting target variable based on the above model
+pred_logit_new_sig = predict(fin_logit_new_sig, newdata=test_classif_alt_new_sig,type='raw')
+#head(pred_logit_new_sig)
+
+#confusion matrix
+conf_mat_logit_new_sig=as.matrix(confusionMatrix(data=pred_logit_new_sig,(test_classif_alt_new_sig$bankruptcy),positive="1", dnn = c("Prediction", "Reference")))
+print("Confusion matrix of logistic regression with 11 variable altman model")
+conf_mat_logit_new_sig
+
+#    0   1
+#0 453 146
+#1  52  75
+```
+
+
+RANDOM FOREST CV  (NEW SIG)
+```{r}
+set.seed(100)
+fin_rforest_new_sig <- train(bankruptcy ~ ., data = fin_alt_new_sig, method = "rf", 
+          trControl = ctrl, metric='Accuracy')
+
+#head(fin_rforest_new_sig)
+
+#confusion matrix of train model
+conf_mat_rforest_new_sig_train<-confusionMatrix(fin_rforest_new_sig)
+
+conf_mat_rforest_new_sig_train
+
+#predicting target variable based on the above model
+pred_rforest_new_sig = predict(fin_rforest_new_sig, newdata=test_classif_alt_new_sig)
+#head(pred_rforest_new_sig)
+
+#confusion matrix
+conf_mat_rforest_new_sig=confusionMatrix(data=pred_rforest_new_sig,(test_classif_alt_new_sig$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of random forest with 11 variable altman model")
+conf_mat_rforest_new_sig
+
+#        Reference
+#Prediction   0   1
+#         0 505   0
+#         1   0 221
+```
+
+ANN CV  (NEW SIG)
+```{r}
+
+set.seed(100)
+
+fin_ann_new_sig<- train(bankruptcy ~ ., data = fin_alt_new_sig,
+    method = "nnet",metric='Accuracy', maxit = 30,trControl=ctrl)
+
+#incase of Error in gzfile(file, "wb") : cannot open the connection reloading R will solve issue
+
+#head(fin_ann_new_sig)
+
+#confusion matrx of train model
+conf_mat_ann_new_sig_train<-confusionMatrix(fin_ann_new_sig)
+
+conf_mat_ann_new_sig_train
+
+#predicting target variable based on the above model
+pred_ann_new_sig = predict(fin_ann_new_sig, newdata=test_classif_alt_new_sig,type='raw')
+#head(pred_ann_new_sig)
+#confusion matrix
+conf_mat_ann_new_sig=confusionMatrix(data=pred_ann_new_sig,(test_classif_alt_new_sig$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of ANN with 11 variable altman model")
+conf_mat_ann_new_sig
+
+#          Reference
+#Prediction   0   1
+#         0 449  95
+#         1  56 126
+```
+SVM LINEAR  CV (NEW SIG)
+```{r}
+set.seed(100)
+fin_svm_l_new_sig <- train( bankruptcy ~., data = fin_alt_new_sig, method = "svmLinear",
+trControl = ctrl,  metric='Accuracy' )
+#head(fin_svm_l_new_sig)
+
+#confusion matrix of train model
+conf_mat_svm_l_new_sig_train<-confusionMatrix(fin_svm_l_new_sig)
+
+conf_mat_svm_l_new_sig_train
+
+#predicting target variable based on the above model
+pred_svm_l_new_sig = predict(fin_svm_l_new_sig, newdata=test_classif_alt_new_sig)
+#head(pred_svm_l_new_sig)
+
+#confusion matrix
+conf_mat_svm_l_new_sig=confusionMatrix(data=pred_svm_l_new_sig,(test_classif_alt_new_sig$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of svm linear with 11 variable altman model")
+conf_mat_svm_l_new_sig
+
+#         Reference
+#Prediction   0   1
+#         0 472 183
+#         1  33  38
+```
+
+SVM RADIAL  CV (NEW SIG)
+```{r}
+set.seed(100)
+fin_svm_r_new_sig <- train( bankruptcy ~., data = fin_alt_new_sig, method = "svmRadial",
+trControl = ctrl,  metric='Accuracy' )
+#head(fin_svm_r_new_sig)
+
+#confusion matrix of train model
+conf_mat_svm_r_new_sig_train<-confusionMatrix(fin_svm_r_new_sig)
+
+conf_mat_svm_r_new_sig_train
+
+#predicting target variable based on the above model
+pred_svm_r_new_sig = predict(fin_svm_r_new_sig, newdata=test_classif_alt_new_sig)
+#head(pred_svm_r_new_sig)
+
+#confusion matrix
+conf_mat_svm_r_new_sig=confusionMatrix(data=pred_svm_r_new_sig,(test_classif_alt_new_sig$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of svm radial with 11 variable altman model")
+conf_mat_svm_r_new_sig
+
+#          Reference
+#Prediction   0   1
+#         0 476  85
+#         1  29 136
+```
+
+MDA  CV (NEW SIG)
+```{r}
+set.seed(100)
+fin_mda_new_sig <- train( bankruptcy ~., data = fin_alt_new_sig, method = "lda",
+trControl = ctrl,    metric='Accuracy' )
+#head(fin_mda_new_sig)
+
+
+#confusion matrix of train model
+conf_mat_mda_new_sig_train<-confusionMatrix(fin_mda_new_sig)
+
+conf_mat_mda_new_sig_train
+
+#predicting target variable based on the above model
+pred_mda_new_sig = predict(fin_mda_new_sig, newdata=test_classif_alt_new_sig)
+#head(pred_mda_new_sig)
+
+#confusion matrix
+conf_mat_mda_new_sig=confusionMatrix(data=pred_mda_new_sig,(test_classif_alt_new_sig$bankruptcy),positive="1", dnn = c("Prediction", "Reference"))
+print("Confusion matrix of mda with 11 variable altman model")
+conf_mat_mda_new_sig
+
+#          Reference
+#Prediction   0   1
+#         0 464 174
+#         1  41  47
+```
