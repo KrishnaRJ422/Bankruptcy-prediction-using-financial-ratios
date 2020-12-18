@@ -1,6 +1,6 @@
 ---
 title: "fa_final"
-author: "Krishna Ravali J"
+author: "KrishnaJ"
 date: "06/12/2020"
 output:
   word_document: default
