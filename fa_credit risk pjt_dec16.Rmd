@@ -1339,7 +1339,7 @@ auc_mda_11
 Plotting auc curves for all techniques
 ```{r plot roc}
 
-plot(perf_bag_11,col='red',main="ROC curves of all 8 classification techniques",xlab="FPR",ylab="TPR",col.main='sea green',legend=TRUE,auc=TRUE,add.legend=TRUE)
+plot(perf_bag_11,col='red',main="ROC curves of all different classification techniques with 11 variables",xlab="FPR",ylab="TPR",col.main='sea green',legend=TRUE,auc=TRUE,add.legend=TRUE)
 
 plot(perf_boost_11,col='blue',xlab="FPR",ylab="TPR",legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
 
@@ -1408,6 +1408,13 @@ fin_alt_new$quick_ratio<-as.numeric(fin_alt_new$quick_ratio)
 fin_alt_new$current_ratio<-as.numeric(fin_alt_new$current_ratio)
 fin_alt_new$dscr<-as.numeric(fin_alt_new$dscr)
 fin_alt_new$cashtocurrentassets<-as.numeric(fin_alt_new$cashtocurrentassets)
+```
+
+#correlation for task 2 data
+```{r}
+fin_alt_final<-fin_alt_new
+fin_alt_final$bankruptcy<-as.numeric(fin_alt_final$bankruptcy)
+rquery.cormat(fin_alt_final,type='lower')
 
 ```
 
@@ -1884,7 +1891,7 @@ require(relaimpo)
 mm=calc.relimp(reg,type="lmg")
 mm
 barplot(sort(mm$lmg,decreasing=TRUE),ylab="Relative Importance", xlab="Variable",
-main="Relative Importance of Explanatory variables",cex.names=0.7,las=3,col='blue')
+main="Relative Importance of Explanatory variables",cex.names=0.7,las=3,col='blue',ylim=c(0,0.08))
 
 ```
 
@@ -1920,6 +1927,7 @@ colnames(fin_alt_new_sig)
 #renaming column names, removing paranthesis
 colnames(fin_alt_new_sig)<-c('liquidity_X1','profitability_X2','productivity_X3','leverage_X4','assetturnover_X5','operationalmargin_OM','growthassets_GA','growthsales_GS','growthemployees_GE','ROE','CROE','CPB','roa','quick_ratio','current_ratio','cashtocurrentassets','bankruptcy')
 colnames(fin_alt_new_sig)
+
 ```
 
 ```{r}
@@ -2348,4 +2356,263 @@ conf_mat_mda_new_sig
 #Prediction   0   1
 #         0 464 174
 #         1  41  47
+```
+######################################
+#ROC  task 2
+
+```{r}
+#bagging
+library(stats)
+library(pROC)
+library(ROCR)
+
+prob_bag_new <- predict(fin_bag_new, newdata=test_classif_alt_new, type="prob")
+pred_bag_new<- prediction(prob_bag_new[,2], test_classif_alt_new$bankruptcy)
+perf_bag_new <- performance(pred_bag_new, measure = "tpr", x.measure = "fpr")
+
+auc_bag_new <- performance(pred_bag_new, measure = "auc")
+auc_bag_new <- auc_bag_new@y.values[[1]]
+auc_bag_new
+
+#boosting
+prob_boost_new <- predict(fin_boost_new, newdata=test_classif_alt_new, type="prob")
+pred_boost_new<- prediction(prob_boost_new[,2], test_classif_alt_new$bankruptcy)
+perf_boost_new <- performance(pred_boost_new, measure = "tpr", x.measure = "fpr")
+
+auc_boost_new <- performance(pred_boost_new, measure = "auc")
+auc_boost_new <- auc_boost_new@y.values[[1]]
+auc_boost_new
+
+#logistic regression
+prob_logit_new <- predict(fin_logit_new, newdata=test_classif_alt_new, type="prob")
+pred_logit_new<- prediction(prob_logit_new[,2], test_classif_alt_new$bankruptcy)
+perf_logit_new <- performance(pred_logit_new, measure = "tpr", x.measure = "fpr")
+
+auc_logit_new <- performance(pred_logit_new, measure = "auc")
+auc_logit_new <- auc_logit_new@y.values[[1]]
+auc_logit_new
+
+#random forest
+prob_logit_new <- predict(fin_logit_new, newdata=test_classif_alt_new, type="prob")
+pred_logit_new<- prediction(prob_logit_new[,2], test_classif_alt_new$bankruptcy)
+perf_logit_new <- performance(pred_logit_new, measure = "tpr", x.measure = "fpr")
+
+auc_logit_new <- performance(pred_logit_new, measure = "auc")
+auc_logit_new <- auc_logit_new@y.values[[1]]
+auc_logit_new
+
+
+#ann
+prob_rforest_new <- predict(fin_rforest_new, newdata=test_classif_alt_new, type="prob")
+pred_rforest_new<- prediction(prob_rforest_new[,2], test_classif_alt_new$bankruptcy)
+perf_rforest_new <- performance(pred_rforest_new, measure = "tpr", x.measure = "fpr")
+
+auc_rforest_new <- performance(pred_rforest_new, measure = "auc")
+auc_rforest_new <- auc_rforest_new@y.values[[1]]
+auc_rforest_new
+
+
+#ann
+prob_ann_new <- predict(fin_ann_new, newdata=test_classif_alt_new, type="prob")
+pred_ann_new<- prediction(prob_ann_new[,2], test_classif_alt_new$bankruptcy)
+perf_ann_new <- performance(pred_ann_new, measure = "tpr", x.measure = "fpr")
+
+auc_ann_new <- performance(pred_ann_new, measure = "auc")
+auc_ann_new <- auc_ann_new@y.values[[1]]
+auc_ann_new
+
+#svm linear
+#prob_svm_l_new <- predict(fin_svm_l_new, newdata=test_classif_alt_new, type="prob")
+#pred_svm_l_new<- prediction(prob_svm_l_new[,2], test_classif_alt_new$bankruptcy)
+#perf_svm_l_new <- performance(pred_svm_l_new, measure = "tpr", x.measure = "fpr")
+
+#auc_svm_l_new <- performance(pred_svm_l_new, measure = "auc")
+#auc_svm_l_new <- auc_svm_l_new@y.values[[1]]
+#auc_svm_l_new
+
+#error NAs in predict
+
+#svm radial
+#prob_svm_r_new <- predict(fin_svm_r_new, newdata=test_classif_alt_new, type="prob")
+#pred_svm_r_new<- prediction(prob_svm_r_new[,2], test_classif_alt_new$bankruptcy)
+#perf_svm_r_new <- performance(pred_svm_r_new, measure = "tpr", x.measure = "fpr")
+
+#auc_svm_r_new <- performance(pred_svm_l_new, measure = "auc")
+#auc_svm_r_new <- auc_svm_r_new@y.values[[1]]
+#auc_svm_r_new
+#error NAs in predict
+
+#mda
+prob_mda_new <- predict(fin_mda_new, newdata=test_classif_alt_new, type="prob")
+pred_mda_new<- prediction(prob_bag_new[,2], test_classif_alt_11$bankruptcy)
+perf_mda_new <- performance(pred_mda_new, measure = "tpr", x.measure = "fpr")
+
+auc_mda_new <- performance(pred_mda_new, measure = "auc")
+auc_mda_new <- auc_mda_new@y.values[[1]]
+auc_mda_new
+
+```
+Plotting auc curves for all techniques using all new variables
+```{r plot roc new}
+
+plot(perf_bag_new,col='red',main="ROC curves of different classification techniques with all new variables",xlab="FPR",ylab="TPR",col.main='sea green',legend=TRUE,auc=TRUE,add.legend=TRUE)
+
+plot(perf_boost_new,col='blue',xlab="FPR",ylab="TPR",legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+
+plot(perf_logit_new,col='green',xlab="FPR",ylab="TPR",legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+
+plot(perf_rforest_new,col='purple',xlab="FPR",ylab="TPR",legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+
+plot(perf_ann_new,col='brown',xlab="FPR",ylab="TPR",legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+#plot(perf_svm_l_new,col='pink',xlab="FPR",ylab="TPR",col.main='sea green',legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+#plot(perf_svm_r_new,col='orange',xlab="FPR",ylab="TPR",col.main='sea green',legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+plot(perf_mda_new,col='yellow',xlab="FPR",ylab="TPR",legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+bag<-paste("bag auc:",round(as.numeric(auc_bag_new), digits = 2))
+boost<-paste("boost auc:",round(as.numeric(auc_boost_new), digits = 2))
+logit<-paste("logit auc:",round(as.numeric(auc_logit_new), digits = 2))
+rforest<-paste("random forest is:",round(as.numeric(auc_rforest_new), digits = 2))
+ann<-paste("ann auc is:",round(as.numeric(auc_ann_new), digits = 2))
+#svml<-paste("svm_l auc is:",round(as.numeric(auc_svm_l_new), digits = 2))
+#svmr<-paste("svm_r auc is:",round(as.numeric(auc_svm_r_new), digits = 2))
+mda<-paste("mda auc is:",round(as.numeric(auc_mda_new), digits = 2))
+
+legend("bottomright" ,c(bag,boost,logit,rforest,ann,mda), fill = c("red","blue","green","purple","brown","yellow"),cex=0.6)
+```
+
+#with significant variables
+
+######################################
+#ROC  task 2
+
+```{r}
+#bagging
+library(stats)
+library(pROC)
+library(ROCR)
+
+prob_bag_new_sig <- predict(fin_bag_new_sig, newdata=test_classif_alt_new_sig, type="prob")
+pred_bag_new_sig<- prediction(prob_bag_new_sig[,2], test_classif_alt_new_sig$bankruptcy)
+perf_bag_new_sig <- performance(pred_bag_new_sig, measure = "tpr", x.measure = "fpr")
+
+auc_bag_new_sig <- performance(pred_bag_new_sig, measure = "auc")
+auc_bag_new_sig <- auc_bag_new_sig@y.values[[1]]
+auc_bag_new_sig
+
+#boosting
+prob_boost_new_sig <- predict(fin_boost_new_sig, newdata=test_classif_alt_new_sig, type="prob")
+pred_boost_new_sig<- prediction(prob_boost_new_sig[,2], test_classif_alt_new_sig$bankruptcy)
+perf_boost_new_sig <- performance(pred_boost_new_sig, measure = "tpr", x.measure = "fpr")
+
+auc_boost_new_sig <- performance(pred_boost_new_sig, measure = "auc")
+auc_boost_new_sig <- auc_boost_new_sig@y.values[[1]]
+auc_boost_new_sig
+
+#logistic regression
+prob_logit_new_sig <- predict(fin_logit_new_sig, newdata=test_classif_alt_new_sig, type="prob")
+pred_logit_new_sig<- prediction(prob_logit_new_sig[,2], test_classif_alt_new_sig$bankruptcy)
+perf_logit_new_sig <- performance(pred_logit_new_sig, measure = "tpr", x.measure = "fpr")
+
+auc_logit_new_sig <- performance(pred_logit_new_sig, measure = "auc")
+auc_logit_new_sig <- auc_logit_new_sig@y.values[[1]]
+auc_logit_new_sig
+
+#random forest
+prob_logit_new_sig <- predict(fin_logit_new_sig, newdata=test_classif_alt_new_sig, type="prob")
+pred_logit_new_sig<- prediction(prob_logit_new_sig[,2], test_classif_alt_new_sig$bankruptcy)
+perf_logit_new_sig <- performance(pred_logit_new_sig, measure = "tpr", x.measure = "fpr")
+
+auc_logit_new_sig <- performance(pred_logit_new_sig, measure = "auc")
+auc_logit_new_sig <- auc_logit_new_sig@y.values[[1]]
+auc_logit_new_sig
+
+
+#ann
+prob_rforest_new_sig <- predict(fin_rforest_new_sig, newdata=test_classif_alt_new_sig, type="prob")
+pred_rforest_new_sig<- prediction(prob_rforest_new_sig[,2], test_classif_alt_new_sig$bankruptcy)
+perf_rforest_new_sig <- performance(pred_rforest_new_sig, measure = "tpr", x.measure = "fpr")
+
+auc_rforest_new_sig <- performance(pred_rforest_new_sig, measure = "auc")
+auc_rforest_new_sig <- auc_rforest_new_sig@y.values[[1]]
+auc_rforest_new_sig
+
+
+#ann
+prob_ann_new_sig <- predict(fin_ann_new_sig, newdata=test_classif_alt_new_sig, type="prob")
+pred_ann_new_sig<- prediction(prob_ann_new_sig[,2], test_classif_alt_new_sig$bankruptcy)
+perf_ann_new_sig <- performance(pred_ann_new_sig, measure = "tpr", x.measure = "fpr")
+
+auc_ann_new_sig <- performance(pred_ann_new_sig, measure = "auc")
+auc_ann_new_sig <- auc_ann_new_sig@y.values[[1]]
+auc_ann_new_sig
+
+#svm linear
+#prob_svm_l_new_sig <- predict(fin_svm_l_new_sig, newdata=test_classif_alt_new_sig, type="prob")
+#pred_svm_l_new_sig<- prediction(prob_svm_l_new_sig[,2], test_classif_alt_new_sig$bankruptcy)
+#perf_svm_l_new_sig <- performance(pred_svm_l_new_sig, measure = "tpr", x.measure = "fpr")
+
+#auc_svm_l_new_sig <- performance(pred_svm_l_new_sig, measure = "auc")
+#auc_svm_l_new_sig <- auc_svm_l_new_sig@y.values[[1]]
+#auc_svm_l_new_sig
+
+#error NAs in predict
+
+#svm radial
+#prob_svm_r_new_sig <- predict(fin_svm_r_new_sig, newdata=test_classif_alt_new_sig, type="prob")
+#pred_svm_r_new_sig<- prediction(prob_svm_r_new_sig[,2], test_classif_alt_new_sig$bankruptcy)
+#perf_svm_r_new_sig <- performance(pred_svm_r_new_sig, measure = "tpr", x.measure = "fpr")
+
+#auc_svm_r_new_sig <- performance(pred_svm_l_new_sig, measure = "auc")
+#auc_svm_r_new_sig <- auc_svm_r_new_sig@y.values[[1]]
+#auc_svm_r_new_sig
+#error NAs in predict
+
+#mda
+prob_mda_new_sig <- predict(fin_mda_new_sig, newdata=test_classif_alt_new_sig, type="prob")
+pred_mda_new_sig<- prediction(prob_bag_new_sig[,2], test_classif_alt_11$bankruptcy)
+perf_mda_new_sig <- performance(pred_mda_new_sig, measure = "tpr", x.measure = "fpr")
+
+auc_mda_new_sig <- performance(pred_mda_new_sig, measure = "auc")
+auc_mda_new_sig <- auc_mda_new_sig@y.values[[1]]
+auc_mda_new_sig
+
+```
+Plotting auc curves for all techniques using only sigificant variables
+```{r plot roc sig}
+
+plot(perf_bag_new_sig,col='red',main="ROC curves of different classification techniques with all significant variables",xlab="FPR",ylab="TPR",col.main='sea green',legend=TRUE,auc=TRUE,add.legend=TRUE)
+
+plot(perf_boost_new_sig,col='blue',xlab="FPR",ylab="TPR",legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+
+plot(perf_logit_new_sig,col='green',xlab="FPR",ylab="TPR",legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+
+plot(perf_rforest_new_sig,col='purple',xlab="FPR",ylab="TPR",legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+
+plot(perf_ann_new_sig,col='brown',xlab="FPR",ylab="TPR",legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+#plot(perf_svm_l_new_sig,col='pink',xlab="FPR",ylab="TPR",col.main='sea green',legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+#plot(perf_svm_r_new_sig,col='orange',xlab="FPR",ylab="TPR",col.main='sea green',legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+plot(perf_mda_new_sig,col='yellow',xlab="FPR",ylab="TPR",legend=TRUE,auc=TRUE,add.legend=TRUE,add=TRUE)
+
+bag<-paste("bag auc:",round(as.numeric(auc_bag_new_sig), digits = 2))
+boost<-paste("boost auc:",round(as.numeric(auc_boost_new_sig), digits = 2))
+logit<-paste("logit auc:",round(as.numeric(auc_logit_new_sig), digits = 2))
+rforest<-paste("random forest is:",round(as.numeric(auc_rforest_new_sig), digits = 2))
+ann<-paste("ann auc is:",round(as.numeric(auc_ann_new_sig), digits = 2))
+#svml<-paste("svm_l auc is:",round(as.numeric(auc_svm_l_new_sig), digits = 2))
+#svmr<-paste("svm_r auc is:",round(as.numeric(auc_svm_r_new_sig), digits = 2))
+mda<-paste("mda auc is:",round(as.numeric(auc_mda_new_sig), digits = 2))
+
+legend("bottomright" ,c(bag,boost,logit,rforest,ann,mda), fill = c("red","blue","green","purple","brown","yellow"),cex=0.6)
 ```
